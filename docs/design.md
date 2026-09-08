@@ -182,6 +182,37 @@ live Etsy listing → order (Etsy/Square) → SaleRecord (revenue / profit / mar
 tables. Cost calc + `record_sale` logic port 1:1 from `ideal-funicular` into
 `app/services/bookkeeping.py` with tests.
 
+## 6.3 Hosting: Railway (planned, 2026-09-08)
+
+Likely deployment target for etsyagent (and, separately, the gallery). Verified from
+Railway docs:
+
+- Deployments get **ephemeral storage** — anything off a mounted volume is wiped on
+  redeploy. Persistent data requires a **volume** (max **1 per service**, no replicas
+  with volumes attached; sizes 0.5 GB free / 5 GB hobby / 50 GB pro).
+- Autodeploy from a linked GitHub **branch**; build via Nixpacks or a Dockerfile.
+  Railway injects `PORT` (bind `0.0.0.0:$PORT`).
+- Public domains with TLS (`*.up.railway.app` or custom) and env vars/secrets via the
+  Variables panel. Services in one project can talk over private networking
+  (`<service>.railway.internal`).
+
+Implications for this app:
+
+1. **`ETSYAGENT_DATA_DIR` must point at the volume mount** (e.g. `/data`). The current
+   default `~/.config/etsyagent` is inside the ephemeral home and would lose the SQLite
+   DB + media on every deploy. SQLite health note: single-writer + one-replica volumes
+   fit this single-user tool fine.
+2. **OAuth redirect URIs must be the public HTTPS host** when hosted (Etsy + future
+   Square). Non-`localhost` redirects require HTTPS, which Railway provides; Etsy may
+   also require the remote URI be approved. Keep the callback host derived from the
+   request so the same pipeline works locally and remotely.
+3. **Deploy `master`** — the release branch is what runs in production; feature work
+   stays in `develop`.
+4. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
+   network name) instead of `localhost:8080` once both are hosted.
+5. The **bookkeeping fold-in** is strongly reinforced by hosting: a Tkinter desktop app
+   can't be hosted at all, while a web ledger deploys alongside etsyagent.
+
 ## 7. Build phases
 
 1. ✅ Scaffold — pyproject, config, models, db.
@@ -218,3 +249,6 @@ Legend: ✅ implemented on the `feature/listing-designer` branch, 🟡 partial, 
 - Bookkeeping lives **inside** etsyagent; the gallery stays separate (read-only HTTP).
 - Sales ledger is multi-channel (Etsy + Square + manual), normalized on minor units;
   `SaleRecord` rows are immutable and keyed by the external order/receipt id for idempotent sync.
+- Likely hosted on **Railway** (§6.3): data (SQLite + media) lives on a persistent volume
+  (`ETSYAGENT_DATA_DIR=/data`), the server binds `$PORT`, and OAuth redirects use the
+  public HTTPS host when deployed.
