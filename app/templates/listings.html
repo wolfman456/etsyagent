@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %} — Listings{% endblock %}
+{% block content %}
+<h1>Etsy listings</h1>
+<form method="get" class="inline">
+  <label>State
+    <select name="state" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for s in ["active", "draft", "inactive", "sold_out", "expired"] %}
+      <option value="{{ s }}" {% if state == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+<a class="btn" href="/listings">Refresh</a>
+{% if not shop %}
+  <div class="notice"><a href="/connect">Connect your shop</a> to see listings.</div>
+{% elif listings %}
+  <table>
+    <thead><tr><th>ID</th><th>Title</th><th>Price</th><th>Qty</th><th>State</th><th></th></tr></thead>
+    <tbody>
+      {% for l in listings %}
+      <tr>
+        <td>{{ l.listing_id }}</td>
+        <td>{{ l.title }}</td>
+        <td>{{ (l.price.amount | default(0, true)) / (l.price.divisor | default(100, true)) }}</td>
+        <td>{{ l.quantity }}</td>
+        <td><span class="badge {{ l.state }}">{{ l.state }}</span></td>
+        <td class="actions">
+          {% if l.state != "active" %}
+          <form method="post" action="/listings/{{ l.listing_id }}/activate" class="inline"><button class="link primary" type="submit">Activate</button></form>
+          {% else %}
+          <form method="post" action="/listings/{{ l.listing_id }}/deactivate" class="inline"><button class="link" type="submit">Deactivate</button></form>
+          {% endif %}
+          <form method="post" action="/listings/{{ l.listing_id }}/delete" class="inline"><button class="link danger" type="submit">Delete</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">No listings returned.</p>
+{% endif %}
+{% endblock %}

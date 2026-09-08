@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %} — New listing{% endblock %}
+{% block content %}
+<h1>New listing</h1>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if not taxonomy_options and creds_ok %}
+  <div class="notice">Couldn't load the Etsy category tree (check connectivity / rate limits). You can still pick a category later.</div>
+{% endif %}
+<form method="post" action="/products/new" enctype="multipart/form-data" class="form">
+  <label>Product name <input type="text" name="name" required placeholder="e.g. Hand-painted ceramic coffee mug"></label>
+  <label>Listing type
+    <select name="listing_type">
+      <option value="physical">Physical product</option>
+      <option value="download">Digital download</option>
+    </select>
+  </label>
+  <div class="row">
+    <label>Price (USD) <input type="text" name="price" required placeholder="19.99"></label>
+    <label>Quantity <input type="number" name="quantity" value="1" min="1"></label>
+  </div>
+  <label>Category
+    <select name="taxonomy_id" required>
+      {% for option in taxonomy_options %}
+      <option value="{{ option[0] }}">{{ option[1] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <input type="hidden" name="taxonomy_path" value="">
+  <div class="row">
+    <label>Who made it?
+      <select name="who_made">
+        {% for c in who_made_choices %}<option value="{{ c }}" {% if c == default_who_made %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>When was it made?
+      <select name="when_made">
+        {% for c in when_made_choices %}<option value="{{ c }}" {% if c == default_when_made %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Is it a craft supply? <select name="is_supply"><option value="0">No</option><option value="1" {% if default_is_supply %}selected{% endif %}>Yes</option></select></label>
+  </div>
+  <label>Photos (at least 1 for a live listing)
+    <input type="file" name="images" accept="image/*" multiple>
+  </label>
+  <label>Digital file (for digital downloads) <input type="file" name="digital_file"></label>
+  <label>Notes for the AI copywriter <textarea name="notes" rows="3" placeholder="e.g. made from reclaimed oak, laser engraved, ships in 2 days"></textarea></label>
+  <button type="submit" class="primary">Create draft &amp; continue</button>
+</form>
+<script>
+  const select = document.querySelector('select[name="taxonomy_id"]');
+  select.addEventListener('change', () => {
+    const text = select.options[select.selectedIndex].text;
+    document.querySelector('input[name="taxonomy_path"]').value = text;
+  });
+</script>
+{% endblock %}

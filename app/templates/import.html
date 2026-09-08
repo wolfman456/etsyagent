@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %} — Import CSV{% endblock %}
+{% block content %}
+<h1>Import listings from CSV</h1>
+{% if imported %}
+  <div class="ok-box">Imported {{ imported }} product(s). Review them under <a href="/products">Products</a>.</div>
+{% endif %}
+{% if errors %}
+  <h2>Rows skipped</h2>
+  <ul>
+    {% for e in errors %}<li>Row {{ e.row }}: {{ e.message }}</li>{% endfor %}
+  </ul>
+{% endif %}
+<p class="muted">
+  Required columns: <code>name</code>, <code>price</code>.
+  Optional: <code>title</code>, <code>description</code>, <code>quantity</code>,
+  <code>listing_type</code> (physical|download), <code>tags</code> (comma-separated),
+  <code>materials</code>, <code>taxonomy_path</code>, <code>who_made</code>, <code>when_made</code>,
+  <code>is_supply</code>, <code>images</code>, <code>digital_file</code>.
+  Add row <code>images</code> entries as filenames present in the data directory.
+</p>
+<form method="post" action="/import" enctype="multipart/form-data">
+  <label>CSV file <input type="file" name="file" accept=".csv,text/csv" required></label>
+  <button type="submit" class="primary">Parse CSV</button>
+</form>
+{% endblock %}

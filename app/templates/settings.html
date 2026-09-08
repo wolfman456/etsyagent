@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %} — Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% if request.query_params.get("saved") %}<div class="ok-box">Settings saved.</div>{% endif %}
+{% if request.query_params.get("refreshed") %}<div class="ok-box">Shop profiles refreshed from Etsy.</div>{% endif %}
+
+{% if not shop %}
+  <div class="notice"><a href="/connect">Connect your shop</a> to configure profiles.</div>
+{% else %}
+  <h2>Shop: {{ shop.shop_name }} (currency {{ shop.currency_code }})</h2>
+  <form method="post" action="/settings/save" class="form">
+    <label>Default shipping profile
+      <select name="shipping_profile_id">
+        <option value="0">— none (physical listings blocked) —</option>
+        {% for profile in shipping_profiles %}
+        <option value="{{ profile.shipping_profile_id }}" {% if shop.shipping_profile_id == profile.shipping_profile_id %}selected{% endif %}>
+          {{ profile.title }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Default processing profile (readiness)
+      <select name="processing_profile_id">
+        <option value="0">— none (physical listings blocked) —</option>
+        {% for profile in processing_profiles %}
+        <option value="{{ profile.processing_profile_id }}" {% if shop.readiness_state_id == profile.processing_profile_id %}selected{% endif %}>
+          {{ profile.title }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Default "who made it"?
+      <select name="default_who_made">{% for c in who_made_choices %}<option value="{{ c }}" {% if shop.default_who_made == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    </label>
+    <label>Default "when was it made"?
+      <select name="default_when_made">{% for c in when_made_choices %}<option value="{{ c }}" {% if shop.default_when_made == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    </label>
+    <label>Default craft supply?
+      <select name="default_is_supply"><option value="0" {% if not shop.default_is_supply %}selected{% endif %}>No</option><option value="1" {% if shop.default_is_supply %}selected{% endif %}>Yes</option></select>
+    </label>
+    <button type="submit" class="primary">Save</button>
+  </form>
+  <form method="post" action="/settings/refresh" class="inline"><button type="submit">Refresh from Etsy</button></form>
+  <p class="muted">Token: {{ "stored" if token else "none" }} — scopes: {{ token.scopes if token else "" }}</p>
+{% endif %}
+{% endblock %}

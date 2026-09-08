@@ -1,0 +1,74 @@
+# AGENTS.md
+
+## Project
+
+Local web app that drafts and publishes Etsy listings via the Etsy Open API v3.
+FastAPI (async) backend, server-rendered Jinja2 UI, SQLite (SQLAlchemy 2.x), thin
+`httpx` client — **no third-party Etsy SDK**. An LLM (OpenAI-compatible or Anthropic)
+drafts listing copy. See `docs/design.md` for architecture and build status.
+
+## Commands
+
+```sh
+.venv/bin/python -m pytest          # all tests
+.venv/bin/ruff check app tests      # lint
+.venv/bin/uvicorn app.main:app --port 8000   # local app
+```
+
+- Python 3.10 target (`pyproject.toml` pins `requires-python >= 3.10`). No
+  system pip/ensurepip on this machine: the venv was bootstrapped by copying the
+  `pip` package in from another project's venv — use `.venv/bin/python -m pip`.
+- Project installed editable: `pip install -e ".[dev]"`; new deps go in
+  `[project.dependencies]` (runtime) / `[project.optional-dependencies].dev`.
+
+## Structure
+
+- `app/main.py` — FastAPI app + all routes; `template()` helper injects
+  `shop`, `settings`, connection state into every page. Routes are `async`.
+- `app/models.py` — SQLAlchemy ORM. `Product` is the local source of truth for an
+  in-progress/draft listing; `SubmissionLog` records pipeline steps.
+- `app/etsy/client.py` — `EtsyClient` (QPS + rolling-24h QPD guard, 429 backoff,
+  401 single-flight refresh). **Every Etsy call needs both `x-api-key:
+  keystring:secret` and `Bearer` token.**
+- `app/etsy/money.py` — UI works in dollars, Etsy API in **minor units** (pennies).
+- `app/auth/oauth.py` — OAuth2 Authorization Code + PKCE; token endpoint uses
+  HTTP Basic (`keystring:secret`). Etsy access tokens are short-lived; the client
+  refreshes automatically on 401.
+- `app/services/listing_builder.py` — create draft → upload images/file →
+  `state=active`; validates required fields and shop profile presence first.
+- `app/services/csv_import.py` — CSV → `Product` rows (column aliases, validation).
+- `app/ai/generator.py` — LLM adapter producing strict-JSON `{title, description,
+  tags, materials}`; output is always capped to Etsy limits (140-char title,
+  ≤13 tags of ≤20 chars).
+
+## Gotchas
+
+- **From `models.py`: session rows passed to templates must be detached-safe.**
+  The `_warm()` helper in `app/main.py` force-loads column attributes before the
+  `SessionLocal` context closes; always `_warm()` objects handed to a template.
+- SQLite on-disk file lives at `~/.config/etsyagent/etsyagent.db` (or
+  `ETSYAGENT_DATA_DIR`); media uploads land in `{data_dir}/media`. Never commit
+  tokens/media — `.gitignore` only ignores `.env` and `.data/`.
+- OAuth flow: `/connect/start` stores the PKCE verifier in process-memory
+  `_pending_states` keyed by state (single-user tool, resets on restart).
+- Taxonomy list is fetched live from Etsy and cached in-memory for 4h (public
+  endpoint, token not required); the category dropdown relies on it.
+- `createDraftListing` requires `shipping_profile_id` + `readiness_state_id` for
+  **physical** listings — must be picked in Settings after connect; submission
+  fails fast with a clear message otherwise. Digital listings skip both.
+- Price field in `createDraftListing`/inventory is minor units — never send
+  dollars straight through.
+- When running tests, `SessionLocal`/`engine` in `app/models.py` bind to the real
+  data dir; tests use their own in-memory engine (`tests/test_listing_builder.py`).
+- In `etsyagent` the Etsy trademark disclaimer is displayed on the Connect page
+  (required by Etsy API terms).
+
+## Workflow
+
+- Default branch: `master`. Work on `feature/<slug>` topic branches; the
+  maintainer reviews/merges PRs (do not merge your own PR into `master`).
+- Commit messages read like changelog entries: concise summary line + body of key
+  changes and reasoning. Reference `docs/design.md` sections when a change
+  implements one.
+- Docs are part of the deliverable: when a change ships documented behavior,
+  update `docs/design.md` status + README in the same change.

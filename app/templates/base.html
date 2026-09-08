@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etsy Agent{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Etsy Agent</span>
+    <nav>
+      <a href="/products">Products</a>
+      <a href="/products/new">New Listing</a>
+      <a href="/listings">Listings</a>
+      <a href="/import">Import CSV</a>
+      <a href="/settings">Settings</a>
+      <a href="/connect">Connect</a>
+    </nav>
+    <span class="status">
+      {% if not creds_ok %}⚠ No Etsy credentials
+      {% elif not connected %}⚠ Not connected
+      {% elif not scopes_ok %}⚠ Scopes incomplete
+      {% else %}✓ Connected{% if shop %} — {{ shop.shop_name }}{% endif %}{% endif %}
+    </span>
+  </header>
+  <main class="container">
+    {% if shop and not shop.ready_for_physical %}
+      <div class="notice">Physical listings need a shipping profile + processing profile — pick them in <a href="/settings">Settings</a>.</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
