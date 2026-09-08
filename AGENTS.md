@@ -72,6 +72,9 @@ integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 
   data dir; tests use their own in-memory engine (`tests/test_listing_builder.py`).
 - In `etsyagent` the Etsy trademark disclaimer is displayed on the Connect page
   (required by Etsy API terms).
+- **Railway hosting (planned, docs/design.md §6.3)**: deployments have ephemeral
+  filesystems — set `ETSYAGENT_DATA_DIR` to a mounted volume (e.g. `/data`) and bind
+  `0.0.0.0:$PORT`; OAuth redirect URIs use the public HTTPS host when deployed.
 
 ## Workflow
 
