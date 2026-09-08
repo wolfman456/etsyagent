@@ -65,10 +65,17 @@ drafts listing copy. See `docs/design.md` for architecture and build status.
 
 ## Workflow
 
-- Default branch: `master`. Work on `feature/<slug>` topic branches; the
-  maintainer reviews/merges PRs (do not merge your own PR into `master`).
+- Default branch: `develop`, where all work lands. `master` only ever moves by
+  merging `develop` into it (release branch). Both branches are protected on
+  GitHub: required PR + 1 approving review, no force-push, no deletions, no
+  direct pushes (enforced on admins too).
+- Never push to `develop` or `master` directly. Work on `feature/<slug>` topic
+  branches off `develop`; the maintainer reviews/merges PRs into `develop`.
+- Once work is in `develop` and ready to release, open a PR `develop` → `master`
+  and let the maintainer merge it (no other changes go to `master`).
 - Commit messages read like changelog entries: concise summary line + body of key
   changes and reasoning. Reference `docs/design.md` sections when a change
   implements one.
 - Docs are part of the deliverable: when a change ships documented behavior,
   update `docs/design.md` status + README in the same change.
+- Start work with `git fetch origin && git switch -c feature/<slug> origin/develop`.
