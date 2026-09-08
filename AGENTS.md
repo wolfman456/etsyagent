@@ -7,6 +7,13 @@ FastAPI (async) backend, server-rendered Jinja2 UI, SQLite (SQLAlchemy 2.x), thi
 `httpx` client — **no third-party Etsy SDK**. An LLM (OpenAI-compatible or Anthropic)
 drafts listing copy. See `docs/design.md` for architecture and build status.
 
+etsyagent is one of three apps for the same woodworking business. Research-backed
+roadmap (docs/design.md §6.2): bookkeeping (`~/ideal-funicular`, Tkinter + CSV) will
+fold into this app; the gallery (`~/project/sixKidsCrafts`, Spring Boot + React) stays
+separate and is consumed read-only via its public `GET /api/gallery`; future sales sync
+comes from Etsy Shop Receipts (`transactions_r`) and Square Orders (`POST /v2/orders/search`,
+integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 are ⏳.
+
 ## Commands
 
 ```sh
@@ -27,13 +34,16 @@ drafts listing copy. See `docs/design.md` for architecture and build status.
   `shop`, `settings`, connection state into every page. Routes are `async`.
 - `app/models.py` — SQLAlchemy ORM. `Product` is the local source of truth for an
   in-progress/draft listing; `SubmissionLog` records pipeline steps.
+- `app/services/bookkeeping.py` — **planned** (phase 8): sale recording with stock
+  decrement + profit/margin, weighted-average cost (ported from `ideal-funicular`).
 - `app/etsy/client.py` — `EtsyClient` (QPS + rolling-24h QPD guard, 429 backoff,
   401 single-flight refresh). **Every Etsy call needs both `x-api-key:
   keystring:secret` and `Bearer` token.**
 - `app/etsy/money.py` — UI works in dollars, Etsy API in **minor units** (pennies).
+  Square's money objects are integer cents too — same convention.
 - `app/auth/oauth.py` — OAuth2 Authorization Code + PKCE; token endpoint uses
   HTTP Basic (`keystring:secret`). Etsy access tokens are short-lived; the client
-  refreshes automatically on 401.
+  refreshes automatically on 401. Square OAuth2 (planned, phase 10) reuses this pattern.
 - `app/services/listing_builder.py` — create draft → upload images/file →
   `state=active`; validates required fields and shop profile presence first.
 - `app/services/csv_import.py` — CSV → `Product` rows (column aliases, validation).
