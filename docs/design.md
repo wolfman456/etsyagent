@@ -126,6 +126,9 @@ etsyagent/
 ## 6. Config & secrets
 
 - `.env` (gitignored, see `.env.example`): `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `ETSY_REDIRECT_PORT` (default 8000), LLM provider vars; `ETSYAGENT_DATA_DIR` (default `~/.config/etsyagent`).
+- Future integration settings (roadmap): `BOOKKEEPING_DATA_DIR` (legacy CSV import),
+  `GALLERY_URL` (default `http://localhost:8080`), `SQUARE_APP_ID`/`SQUARE_APP_SECRET`
+  (Square OAuth2).
 - Tokens and local media live under the data dir, never in the repo.
 
 ## 6.1 Running locally
@@ -140,6 +143,45 @@ cp .env.example .env   # fill in ETSY_KEYSTRING / ETSY_SHARED_SECRET (+ optional
 
 OAuth callback URL must be registered in your Etsy app as `http://localhost:8000/callback`.
 
+## 6.2 Integrations & multi-channel sales (research, 2026-09-08)
+
+etsyagent is one of three apps serving the same woodworking business (Six Kids
+Crafts). Researching the other two + Square informed the roadmap below.
+
+**Related apps found:**
+
+- `~/ideal-funicular` — desktop bookkeeping (Python 3.10 + Tkinter, plain CSV via
+  `data_manager.py`). Entities: `wood_inventory`, `supplies`, `products`, `expenses`,
+  `sales`. The `products` schema (`product_name`, `description`, `quantity_in_stock`,
+  `material_cost`, `asking_price`, `sale_price`) maps ~1:1 onto Etsy listing facts, and
+  `sales` records profit/margin with stock decrement (`sales_ops.py`). Board-feet +
+  weighted-average cost math in `cost_calculator.py`. Real business data lives in `data/*.csv`.
+- `~/project/sixKidsCrafts` — gallery website (Spring Boot backend `scaling-octo-eureka`
+  + React/Vite frontend `refactored-couscous`). Explicitly **non-ecommerce** (its own
+  AGENTS.md forbids sales features), but it exposes a read-only public API
+  `GET /api/gallery` → `{id, title, description, categoryId/name, published, images:
+  ["/uploads/<uuid>"], mediaIds}`. Images are files in its `uploads/` dir.
+
+**Decisions:**
+
+- Bookkeeping **folds into etsyagent** (single unified `Product`); `ideal-funicular`
+  becomes read-only legacy. One SQLite DB removes CSV syncing; etsyagent already has
+  money (minor units), the web UI, and the Etsy client.
+- The gallery **stays separate** and is consumed read-only via its HTTP API — no gallery
+  code changes needed.
+- New sales sources feed one ledger: **Etsy Shop Receipts** (`transactions_r` scope) and
+  **Square Orders** (`POST /v2/orders/search`). Square money is also integer cents
+  (`base_price_money.amount` = 500 = $5.00) — same minor-unit convention as Etsy.
+
+**Target data flow:** `gallery item → Product (cost + stock + price) → listing draft →
+live Etsy listing → order (Etsy/Square) → SaleRecord (revenue / profit / margin)`.
+
+**Planned schema additions:** `Product` gains `material_cost`, `sale_price`,
+`profit_margin`, `external_refs` (etsy_listing_id, square_catalog_id); new `SaleRecord`
+(source = `etsy|square|manual`), `Expense`, and (optional) `SupplyPurchase`/`WoodPurchase`
+tables. Cost calc + `record_sale` logic port 1:1 from `ideal-funicular` into
+`app/services/bookkeeping.py` with tests.
+
 ## 7. Build phases
 
 1. ✅ Scaffold — pyproject, config, models, db.
@@ -151,8 +193,19 @@ OAuth callback URL must be registered in your Etsy app as `http://localhost:8000
    - ✅ Digital downloads (file upload + `type=download`)
    - ⏳ Variations/inventory (`updateListingInventory`) and per-category attributes — modeled in the API client, not wired into the UI flow yet.
 6. ⏳ Hardening — rate-limit tuning, resume, testing-policy-friendly dry-run.
+7. ⏳ Migration bridge — importer for `ideal-funicular` `data/products.csv` + `sales.csv`
+   into SQLite (`BOOKKEEPING_DATA_DIR` setting); old app keeps working untouched.
+8. ⏳ Bookkeeping module — `Product` cost/stock fields, `SaleRecord` + `Expense` tables,
+   `app/services/bookkeeping.py` (weighted-avg cost, sale recording), Business Dashboard
+   (revenue/cost/profit/margin, per-product summaries); retires the Tkinter app.
+9. ⏳ Gallery import — `GALLERY_URL` setting + "Import from gallery" page: `GET /api/gallery`
+   → Product seeds (title, description, category→taxonomy hint, images via `/uploads/<stored>`).
+10. ⏳ Order sync (Etsy + Square) — Etsy `transactions_r` scope (re-consent) + `getShopReceipts`/
+    `getShopReceipt2`; Square OAuth2 app (`SQUARE_*` settings, `ORDERS_READ` scope);
+    "Sync sales" action → idempotent `SaleRecord` rows (stock decrement, fees/tax separated).
 
-Legend: ✅ implemented on the `feature/listing-designer` branch, 🟡 partial, ⏳ not started.
+Legend: ✅ implemented on the `feature/listing-designer` branch, 🟡 partial, ⏳ not started
+(phases 7–10 are the research-backed roadmap; not yet implemented).
 
 ## 8. Decisions log
 
@@ -162,3 +215,6 @@ Legend: ✅ implemented on the `feature/listing-designer` branch, 🟡 partial, 
 - Price handled as minor units at the API boundary; user enters dollars in the UI.
 - LLM provider pluggable; OpenAI-compatible default, Anthropic supported.
 - No Commercial Access required (single-owner personal tool).
+- Bookkeeping lives **inside** etsyagent; the gallery stays separate (read-only HTTP).
+- Sales ledger is multi-channel (Etsy + Square + manual), normalized on minor units;
+  `SaleRecord` rows are immutable and keyed by the external order/receipt id for idempotent sync.
