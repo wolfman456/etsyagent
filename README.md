@@ -34,7 +34,8 @@ See [docs/design.md](docs/design.md) for the API research, architecture, and bui
 Roadmap (research-backed, §6.2): the standalone bookkeeping app (`ideal-funicular`)
 will fold into etsyagent, the gallery site (`sixKidsCrafts`) is consumed read-only via
 its public API, and sales sync will pull from Etsy Shop Receipts and Square Orders into
-a single ledger.
+a single ledger. These apps will likely be hosted on Railway (§6.3) — SQLite + media on
+a persistent volume, public HTTPS OAuth callbacks.
 
 The term "Etsy" is a trademark of Etsy, Inc. This application uses the Etsy API but is
 not endorsed or certified by Etsy, Inc.
