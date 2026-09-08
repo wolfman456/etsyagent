@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %} — Connect{% endblock %}
+{% block content %}
+<h1>Connect your Etsy shop</h1>
+{% if oauth_error %}<div class="error">{{ oauth_error }}</div>{% endif %}
+<p>
+  This tool uses the Etsy Open API v3 (OAuth 2.0 Authorization Code + PKCE).
+  Connection status:
+  {% if connected %}<strong class="ok">connected</strong>
+  {% else %}<strong class="warn">not connected</strong>{% endif %}
+</p>
+{% if creds_ok %}
+  <form action="/connect/start" method="get">
+    <button type="submit" class="primary">{% if connected %}Re-connect{% else %}Connect to Etsy{% endif %}</button>
+  </form>
+{% else %}
+  <div class="error">Set <code>ETSY_KEYSTRING</code> and <code>ETSY_SHARED_SECRET</code> in <code>.env</code> first (see <code>.env.example</code>).</div>
+{% endif %}
+<div class="muted">
+  The term "Etsy" is a trademark of Etsy, Inc. This application uses the Etsy API but
+  is not endorsed or certified by Etsy, Inc.
+</div>
+{% endblock %}

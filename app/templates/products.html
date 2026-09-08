@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %} — Products{% endblock %}
+{% block content %}
+<h1>Products</h1>
+{% if request.query_params.get("submitted") %}<div class="ok-box">Product submitted to Etsy.</div>{% endif %}
+<a class="btn" href="/products/new">+ New listing</a>
+{% if products %}
+  <table>
+    <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Status</th><th>Etsy ID</th><th></th></tr></thead>
+    <tbody>
+      {% for p in products %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td>{{ p.taxonomy_path }}</td>
+        <td>{{ p.price }}</td>
+        <td><span class="badge {{ p.status }}">{{ p.status }}</span></td>
+        <td>{{ p.etsy_listing_id or "" }}</td>
+        <td class="actions">
+          <a href="/products/{{ p.id }}">Review</a>
+          {% if p.status == "draft" or p.status == "failed" %}
+          <form method="post" action="/products/{{ p.id }}/submit" class="inline"><button class="link primary" type="submit">Submit</button></form>
+          {% endif %}
+          <form method="post" action="/products/{{ p.id }}/delete" class="inline"><button class="link danger" type="submit">Delete</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if p.error %}<div class="muted">{{ p.error }}</div>{% endif %}
+{% else %}
+  <p class="muted">No products yet. Create one above or <a href="/import">import a CSV</a>.</p>
+{% endif %}
+{% endblock %}

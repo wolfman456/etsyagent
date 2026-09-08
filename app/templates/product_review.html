@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %} — {{ product.name }}{% endblock %}
+{% block content %}
+<h1>{{ product.name }}</h1>
+{% if generated %}<div class="ok-box">AI draft generated — review and edit before submitting.</div>{% endif %}
+{% if request.query_params.get("error") %}<div class="error">{{ request.query_params.get("error") }}</div>{% endif %}
+
+<div class="meta">
+  <span class="badge {{ product.status }}">{{ product.status }}</span>
+  <span>Type: {{ product.listing_type }}</span>
+  <span>Price: ${{ product.price }}</span>
+  <span>Qty: {{ product.quantity }}</span>
+  <span>Category: {{ product.taxonomy_path }}</span>
+  {% if product.etsy_listing_id %}<span>Etsy listing: #{{ product.etsy_listing_id }}</span>{% endif %}
+</div>
+
+<form method="post" action="/products/{{ product.id }}/generate" class="inline">
+  <button type="submit" class="primary">{% if product.title %}Regenerate{% else %}Generate with AI{% endif %}</button>
+</form>
+<p class="muted">Generates title (≤140 chars), description, up to 13 tags and materials from your facts. Edit below freely.</p>
+
+<form method="post" action="/products/{{ product.id }}/save" class="form">
+  <label>Title <input type="text" name="title" value="{{ product.title }}" maxlength="140" required></label>
+  <label>Description (HTML allowed)
+    <textarea name="description" rows="12" required>{{ product.description }}</textarea>
+  </label>
+  <label>Tags (comma-separated, max 13, each ≤20 chars)
+    <input type="text" name="tags" value="{{ product.tags | join(', ') }}">
+  </label>
+  <label>Materials (comma-separated, max 13)
+    <input type="text" name="materials" value="{{ product.materials | join(', ') }}">
+  </label>
+  <button type="submit">Save</button>
+</form>
+
+{% if product.image_list() %}
+<div class="thumbs">
+  {% for img in product.image_list() %}<img src="/media/{{ img }}" alt="">{% endfor %}
+</div>
+{% endif %}
+
+{% if logs %}
+<h2>Submission log</h2>
+<ul class="log">
+  {% for l in logs %}<li><strong>{{ l.step }}</strong>: {{ l.detail }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+{% if product.status == "draft" or product.status == "failed" %}
+<form method="post" action="/products/{{ product.id }}/submit" class="inline">
+  <button type="submit" class="primary">Submit to Etsy</button>
+</form>
+{% endif %}
+{% endblock %}
