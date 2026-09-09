@@ -66,8 +66,9 @@ integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 
 - `createDraftListing` requires `shipping_profile_id` + `readiness_state_id` for
   **physical** listings — must be picked in Settings after connect; submission
   fails fast with a clear message otherwise. Digital listings skip both.
-- Price field in `createDraftListing`/inventory is minor units — never send
-  dollars straight through.
+- Price in `createDraftListing`/`updateListing` is minor units (`$10.99` → `1099`) —
+  never send dollars straight through. **Exception: `updateListingInventory` offering
+  `price` is the Money float (`24.99`)**, handled by `build_inventory_payload`.
 - When running tests, `SessionLocal`/`engine` in `app/models.py` bind to the real
   data dir; tests use their own in-memory engine (`tests/test_listing_builder.py`).
 - In `etsyagent` the Etsy trademark disclaimer is displayed on the Connect page
