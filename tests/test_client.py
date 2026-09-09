@@ -150,3 +150,17 @@ async def test_request_http_error_raised(no_sleep):
     with pytest.raises(EtsyError) as excinfo:
         await client.request("GET", "/listings/1")
     assert excinfo.value.status == 500
+
+
+@pytest.mark.asyncio
+async def test_update_listing_inventory_sends_query_param(no_sleep):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"products": []})
+
+    client, _ = build_client(handler, token={"access_token": "AT"})
+    body = await client.update_listing_inventory(123, {"products": []}, "3")
+    assert body == {"products": []}
+    assert "max_variations_supported=3" in seen["url"]

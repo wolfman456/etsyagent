@@ -79,6 +79,9 @@ class Product(Base):
     images: Mapped[list[str]] = mapped_column(JSON, default=list)
     digital_file: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    variations: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    variants: Mapped[list[dict]] = mapped_column(JSON, default=list)
+
     status: Mapped[str] = mapped_column(String(32), default="draft")
     etsy_listing_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
@@ -95,6 +98,12 @@ class Product(Base):
 
     def image_list(self) -> list[str]:
         return self.images if isinstance(self.images, list) else []
+
+    def variations_list(self) -> list[dict]:
+        return self.variations if isinstance(self.variations, list) else []
+
+    def variants_list(self) -> list[dict]:
+        return self.variants if isinstance(self.variants, list) else []
 
     def to_summary(self) -> dict[str, Any]:
         return {

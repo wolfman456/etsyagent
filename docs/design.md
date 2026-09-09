@@ -36,7 +36,7 @@ Filling out Etsy listings is tedious manual work. This project automates it: giv
 ### 2.3 Creating a listing (physical product)
 
 - `createDraftListing`: POST `/shops/{shop_id}/listings`. Mandatory: `quantity`, `title`, `description`, `price`, `who_made`, `when_made`, `taxonomy_id`, `is_supply`, and for physical items `shipping_profile_id` + `readiness_state_id` (processing profile).
-- **Price is in minor units (pennies)**: `$10.99` → `1099`. The `Money` object pattern also appears in inventory offerings. See `app/etsy/money.py`.
+- **Price is in minor units (pennies)** for `createDraftListing`/`updateListing`: `$10.99` → `1099`. **Exception: `updateListingInventory` offering `price` is the Money float (dollars, e.g. `24.99`)** — send dollars, not pennies (`build_inventory_payload` in `app/services/listing_builder.py`). See `app/etsy/money.py`.
 - Images: listing cannot go live without ≥1 image. Upload with `uploadListingImage` (POST `/shops/{shop_id}/listings/{listing_id}/images`, `multipart/form-data`).
 - Publish: `updateListing` (PATCH `/shops/{shop_id}/listings/{listing_id}`) with `state=active`.
 - Digital products: same create, then `type=download` via `updateListing`, then `uploadListingFile`.
@@ -86,7 +86,7 @@ etsyagent/
 
 - `OAuthToken` — single row: access/refresh token, expiry, scopes.
 - `ShopProfile` — per-shop: `shop_id`, name, currency, `shipping_profile_id` (default shipping profile), `readiness_state_id` (default processing profile). Populated on connect/settings; preconditions for physical product submission.
-- `Product` — the user's in-progress listing: product name, listing type (physical/download), price (dollars), quantity, who_made, when_made, is_supply, taxonomy_id + path snapshot, AI-generated + user-edited `title`, `description`, `tags` (JSON list), `materials`, photo file paths (JSON), variation/personalization placeholders, `status` (draft → queued → submitting → published/failed), `etsy_listing_id`, `error`.
+- `Product` — the user's in-progress listing: product name, listing type (physical/download), price (dollars), quantity, who_made, when_made, is_supply, taxonomy_id + path snapshot, AI-generated + user-edited `title`, `description`, `tags` (JSON list), `materials`, photo file paths (JSON), `variations` (1–2 dimension config: property_id/name/scale_id/values) + `variants` (cartesian matrix rows: sku/price/quantity/value_labels), status (draft → queued → submitting → published/failed), `etsy_listing_id`, `error`.
 - `SubmissionLog` — append-only step log per submission (audit / resumability).
 
 ### 3.2 Etsy client
@@ -222,7 +222,13 @@ Implications for this app:
 5. 🟡 Bulk + digital + variations —
    - ✅ CSV import (column mapping, validation, error rows)
    - ✅ Digital downloads (file upload + `type=download`)
-   - ⏳ Variations/inventory (`updateListingInventory`) and per-category attributes — modeled in the API client, not wired into the UI flow yet.
+   - ✅ Variations/inventory (`updateListingInventory`) — variation-capable taxonomy
+     properties drive a 1–2 dimension editor on the review page; a cartesian variant
+     matrix (SKU / price / qty per combo, per-combo overrides) is submitted before
+     `state=active`. Note: inventory offering `price` is the Money **float** (dollars),
+     unlike `createDraftListing` minor units.
+   - ⏳ Per-category extra attribute fields (non-variation) — `getPropertiesByTaxonomyId`
+     also feeds these; not surfaced in the UI yet.
 6. ⏳ Hardening — rate-limit tuning, resume, testing-policy-friendly dry-run.
 7. ⏳ Migration bridge — importer for `ideal-funicular` `data/products.csv` + `sales.csv`
    into SQLite (`BOOKKEEPING_DATA_DIR` setting); old app keeps working untouched.

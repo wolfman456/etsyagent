@@ -4,6 +4,7 @@
 <h1>{{ product.name }}</h1>
 {% if generated %}<div class="ok-box">AI draft generated — review and edit before submitting.</div>{% endif %}
 {% if request.query_params.get("error") %}<div class="error">{{ request.query_params.get("error") }}</div>{% endif %}
+{% if request.query_params.get("variations_error") %}<div class="error">{{ request.query_params.get("variations_error") }}</div>{% endif %}
 
 <div class="meta">
   <span class="badge {{ product.status }}">{{ product.status }}</span>
@@ -32,6 +33,81 @@
   </label>
   <button type="submit">Save</button>
 </form>
+
+<section id="variations">
+  <h2>Variations</h2>
+  {% if product.variations_list() %}
+    <form method="post" action="/products/{{ product.id }}/variations" class="form">
+      {% for d in product.variations_list() %}
+        <input type="hidden" name="dim_property_id" value="{{ d.property_id }}">
+        <input type="hidden" name="dim_values" value="{{ d.values | join(', ') }}">
+      {% endfor %}
+      <table class="matrix">
+        <thead><tr><th>Values</th><th>SKU</th><th>Price</th><th>Qty</th></tr></thead>
+        <tbody>
+        {% for v in product.variants_list() %}
+          <tr>
+            <td class="muted">{{ v.value_labels | join(' | ') }}
+              <input type="hidden" name="variant_labels" value="{{ v.value_labels | join('|') }}">
+            </td>
+            <td><input type="text" name="sku" value="{{ v.sku }}"></td>
+            <td><input type="text" name="variant_price" value="{{ v.price }}"></td>
+            <td><input type="number" name="variant_quantity" value="{{ v.quantity }}" min="1"></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="primary">Save variations</button>
+    </form>
+    <form method="post" action="/products/{{ product.id }}/variations/clear" class="inline">
+      <button type="submit" class="danger">Remove variations</button>
+    </form>
+    <p class="muted">Prices are per-variant in dollars; leave as the base price if all variants cost the same.</p>
+  {% else %}
+    <form method="post" action="/products/{{ product.id }}/variations" class="form" id="variation-form">
+      <div class="row">
+        <label>Variation 1 <select name="dim_property_id" class="dim-select" id="dim-select-1"></select></label>
+        <label>Values (comma-separated) <input type="text" name="dim_values" class="dim-values" placeholder="Red, Blue, Green"></label>
+      </div>
+      <div class="row">
+        <label>Variation 2 (optional) <select name="dim_property_id" class="dim-select" id="dim-select-2"></select></label>
+        <label>Values (comma-separated) <input type="text" name="dim_values" class="dim-values" placeholder="Small, Large"></label>
+      </div>
+      <p id="dim-empty-note" class="muted" hidden>This category has no variation-capable properties.</p>
+      <button type="submit" class="primary">Set up variations</button>
+    </form>
+    <script>
+      (async () => {
+        const form = document.getElementById('variation-form');
+        const selects = form.querySelectorAll('.dim-select');
+        try {
+          const res = await fetch('/taxonomy/{{ product.taxonomy_id }}/properties');
+          const data = await res.json();
+          const props = data.properties || [];
+          if (!props.length) {
+            form.querySelector('button').disabled = true;
+            document.getElementById('dim-empty-note').hidden = false;
+            return;
+          }
+          for (const sel of selects) {
+            for (const p of props) {
+              const opt = document.createElement('option');
+              opt.value = p.property_id;
+              opt.textContent = p.property_name;
+              sel.appendChild(opt);
+            }
+          }
+        } catch (e) {
+          form.querySelector('button').disabled = true;
+          document.getElementById('dim-empty-note').textContent =
+            'Could not load category properties at the moment.';
+          document.getElementById('dim-empty-note').hidden = false;
+          console.error(e);
+        }
+      })();
+    </script>
+  {% endif %}
+</section>
 
 {% if product.image_list() %}
 <div class="thumbs">
