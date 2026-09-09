@@ -4,9 +4,10 @@ import re
 from decimal import Decimal, InvalidOperation
 
 # The Etsy Open API v3 works in minor units (sub-units) of the shop currency by
-# default — e.g. $10.99 is sent as 1099. Inventory offerings have the same
-# convention. The UI works in dollars, the API in minor units; these helpers
-# convert at the boundary.
+# default — e.g. $10.99 is sent as 1099 for createDraftListing/updateListing.
+# Exception: updateListingInventory offering `price` is the Money float (24.99),
+# NOT minor units. The UI works in dollars, the API in minor units except for
+# inventory; these helpers convert at the boundary.
 
 _MINOR_UNITS = 100
 

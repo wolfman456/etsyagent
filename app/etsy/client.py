@@ -270,9 +270,15 @@ class EtsyClient:
     async def delete_listing(self, listing_id: int) -> dict:
         return await self.request("DELETE", f"/listings/{listing_id}")
 
-    async def update_listing_inventory(self, listing_id: int, payload: dict) -> dict:
+    async def update_listing_inventory(
+        self,
+        listing_id: int,
+        payload: dict,
+        max_variations_supported: str = "2",
+    ) -> dict:
+        params = {"max_variations_supported": max_variations_supported}
         return await self.request(
-            "PUT", f"/listings/{listing_id}/inventory", json=payload
+            "PUT", f"/listings/{listing_id}/inventory", params=params, json=payload
         )
 
 

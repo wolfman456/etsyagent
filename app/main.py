@@ -32,6 +32,8 @@ from app.services.listing_builder import (
     WHEN_MADE_CHOICES,
     WHO_MADE_CHOICES,
     ListingValidationError,
+    build_inventory_payload,
+    build_variant_matrix,
     submit_listing,
 )
 
@@ -112,6 +114,17 @@ async def _ensure_taxonomy() -> list[dict]:
 
 def _has_client() -> bool:
     return settings.etsy_credentials_set
+
+
+async def _variation_properties(taxonomy_id: int) -> list[dict]:
+    """Variation-capable properties for a taxonomy, empty list on failure."""
+    if not _has_client():
+        return []
+    client = get_client()
+    try:
+        return await client.get_properties_by_taxonomy(taxonomy_id)
+    except EtsyError:
+        return []
 
 
 def taxonomy_options(nodes: list[dict]) -> list[tuple[int, str]]:
@@ -376,6 +389,124 @@ def product_save(
         session.add(product)
         session.commit()
         product_id = product.id
+    return RedirectResponse(f"/products/{product_id}", status_code=303)
+
+
+@app.get("/taxonomy/{taxonomy_id}/properties")
+async def taxonomy_properties(taxonomy_id: int):
+    if not _has_client():
+        raise HTTPException(status_code=400, detail="Etsy credentials not configured (.env)")
+    props = await _variation_properties(taxonomy_id)
+    items = [
+        {
+            "property_id": p["property_id"],
+            "property_name": p.get("property_name", ""),
+            "scale_id": p.get("scale_id"),
+            "values": [
+                {"value_id": v["value_id"], "name": v.get("value_name", "")}
+                for v in (p.get("possible_values") or [])
+            ],
+        }
+        for p in props
+        if p.get("supports_variations")
+    ]
+    return {"properties": items}
+
+
+@app.post("/products/{product_id}/variations", response_class=HTMLResponse)
+async def product_variations(request: Request, product_id: int):
+    form = await request.form()
+    with SessionLocal() as session:
+        product = session.get(Product, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        if not product.taxonomy_id:
+            raise HTTPException(status_code=400, detail="Pick a category first.")
+        shop = get_shop_profile(session)
+
+        names = {
+            p["property_id"]: p.get("property_name", "")
+            for p in await _variation_properties(product.taxonomy_id)
+        }
+        pids = form.getlist("dim_property_id")
+        vals = form.getlist("dim_values")
+        dims_raw = []
+        for i in range(min(len(pids), len(vals))):
+            pid = str(pids[i]).strip()
+            if pid:
+                dims_raw.append((int(pid), str(vals[i])))
+
+        def error(exc) -> Response:
+            session.rollback()
+            return RedirectResponse(
+                f"/products/{product_id}?variations_error={str(exc)}", status_code=303
+            )
+
+        if not dims_raw:
+            return error(Exception("Select at least one variation property."))
+        variations = []
+        for pid, values_str in dims_raw:
+            values = [v.strip() for v in values_str.split(",") if v.strip()]
+            variations.append(
+                {
+                    "property_id": pid,
+                    "property_name": names.get(pid, ""),
+                    "scale_id": None,
+                    "values": values,
+                }
+            )
+        skus = form.getlist("sku")
+        if skus:
+            labels_rows = [lab.split("|") for lab in form.getlist("variant_labels")]
+            prices = form.getlist("variant_price")
+            qtys = form.getlist("variant_quantity")
+            variants = []
+            for i, sku in enumerate(skus):
+                variants.append(
+                    {
+                        "sku": str(sku).strip(),
+                        "value_labels": labels_rows[i] if i < len(labels_rows) else [],
+                        "price": prices[i].strip() if i < len(prices) else product.price,
+                        "quantity": int(qtys[i]) if i < len(qtys) else product.quantity,
+                    }
+                )
+        else:
+            try:
+                variants = build_variant_matrix(
+                    variations, product.name, product.price, product.quantity
+                )
+            except ListingValidationError as exc:
+                return error(exc)
+
+        product.variations = variations
+        product.variants = variants
+        try:
+            build_inventory_payload(product, shop)
+        except ListingValidationError as exc:
+            return error(exc)
+
+        session.add(product)
+        session.commit()
+        product_snapshot = _warm(product)
+        logs = [{"step": log.step, "detail": log.detail} for log in product.logs]
+        shop_snapshot = _warm(shop)
+    return template(
+        request,
+        "product_review.html",
+        {"product": product_snapshot, "logs": logs, "shop": shop_snapshot},
+    )
+
+
+@app.post("/products/{product_id}/variations/clear", response_class=HTMLResponse)
+def product_variations_clear(request: Request, product_id: int):
+    with SessionLocal() as session:
+        product = session.get(Product, product_id)
+        if product:
+            product.variations = []
+            product.variants = []
+            product.error = ""
+            session.add(product)
+            session.commit()
     return RedirectResponse(f"/products/{product_id}", status_code=303)
 
 
