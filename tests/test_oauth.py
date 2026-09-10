@@ -44,6 +44,11 @@ def test_build_authorize_url_includes_params():
     assert qs["code_challenge_method"] == ["S256"]
 
 
+def test_public_host_redirect_uri_is_https():
+    cfg = build_oauth_config(make_settings(public_host="myapp.up.railway.app"), ["listings_r"])
+    assert cfg.redirect_uri == "https://myapp.up.railway.app/callback"
+
+
 def test_exchange_code_posts_token_request():
     requested = {}
 
