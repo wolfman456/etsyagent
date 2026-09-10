@@ -182,10 +182,10 @@ live Etsy listing → order (Etsy/Square) → SaleRecord (revenue / profit / mar
 tables. Cost calc + `record_sale` logic port 1:1 from `ideal-funicular` into
 `app/services/bookkeeping.py` with tests.
 
-## 6.3 Hosting: Railway (planned, 2026-09-08)
+## 6.3 Hosting: Railway (config delivered, 2026-09-10)
 
-Likely deployment target for etsyagent (and, separately, the gallery). Verified from
-Railway docs:
+Deployment target for etsyagent. Verified from Railway docs; deployment scaffolding
+(`railway.toml`, Nixpacks build, `PORT`-aware start command) is in place.
 
 - Deployments get **ephemeral storage** — anything off a mounted volume is wiped on
   redeploy. Persistent data requires a **volume** (max **1 per service**, no replicas
@@ -196,21 +196,34 @@ Railway docs:
   Variables panel. Services in one project can talk over private networking
   (`<service>.railway.internal`).
 
-Implications for this app:
+Delivered scaffolding (2026-09-10):
 
-1. **`ETSYAGENT_DATA_DIR` must point at the volume mount** (e.g. `/data`). The current
+- `railway.toml` — Nixpacks builder (auto-detects `pyproject.toml`), start command
+  `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, restart on failure (max 5 retries).
+- `PUBLIC_HOST` setting (`app/config.py`) — when set to the public host, `redirect_uri`
+  becomes `https://{PUBLIC_HOST}/callback`; otherwise it falls back to
+  `http://localhost:{etsy_redirect_port}/callback` for local dev.
+
+Deploy checklist (Railway dashboard, outside the repo):
+
+1. Create a **volume** and mount it at `/data`; set `ETSYAGENT_DATA_DIR=/data`. The
    default `~/.config/etsyagent` is inside the ephemeral home and would lose the SQLite
-   DB + media on every deploy. SQLite health note: single-writer + one-replica volumes
-   fit this single-user tool fine.
-2. **OAuth redirect URIs must be the public HTTPS host** when hosted (Etsy + future
-   Square). Non-`localhost` redirects require HTTPS, which Railway provides; Etsy may
-   also require the remote URI be approved. Keep the callback host derived from the
-   request so the same pipeline works locally and remotely.
-3. **Deploy `master`** — the release branch is what runs in production; feature work
-   stays in `develop`.
-4. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
+   DB + media on every deploy (SQLite single-writer + one-replica volumes fit this
+   single-user tool fine).
+2. Set Variables: `ETSY_KEYSTRING`, `ETSY_SHARED_SECRET`, `PUBLIC_HOST` (e.g.
+   `myapp.up.railway.app`), plus `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Never set
+   secrets through the repo.
+3. Add `https://{PUBLIC_HOST}/callback` to the **Etsy developer app's redirect URI list**
+   (keep the localhost one for local dev). Etsy non-`localhost` redirects require HTTPS,
+   which Railway provides; both URIs must be registered there.
+4. Deploy `master` — the release branch is what runs in production; feature work stays
+   in `develop`.
+
+Future implications:
+
+1. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
    network name) instead of `localhost:8080` once both are hosted.
-5. The **bookkeeping fold-in** is strongly reinforced by hosting: a Tkinter desktop app
+2. The **bookkeeping fold-in** is strongly reinforced by hosting: a Tkinter desktop app
    can't be hosted at all, while a web ledger deploys alongside etsyagent.
 
 ## 7. Build phases

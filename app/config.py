@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     etsy_keystring: str = ""
     etsy_shared_secret: str = ""
     etsy_redirect_port: int = 8000
+    public_host: str = ""
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -37,6 +38,8 @@ class Settings(BaseSettings):
 
     @property
     def redirect_uri(self) -> str:
+        if self.public_host:
+            return f"https://{self.public_host}/callback"
         return f"http://localhost:{self.etsy_redirect_port}/callback"
 
     @property
