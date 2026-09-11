@@ -182,36 +182,41 @@ live Etsy listing → order (Etsy/Square) → SaleRecord (revenue / profit / mar
 tables. Cost calc + `record_sale` logic port 1:1 from `ideal-funicular` into
 `app/services/bookkeeping.py` with tests.
 
-## 6.3 Hosting: Railway (planned, 2026-09-08)
+## 6.3 Hosting: Railway (2026-09-08 planned, 2026-09-12 live)
 
-Likely deployment target for etsyagent (and, separately, the gallery). Verified from
+Deployment target for etsyagent (and, separately, the gallery). Verified from
 Railway docs:
 
 - Deployments get **ephemeral storage** — anything off a mounted volume is wiped on
   redeploy. Persistent data requires a **volume** (max **1 per service**, no replicas
   with volumes attached; sizes 0.5 GB free / 5 GB hobby / 50 GB pro).
-- Autodeploy from a linked GitHub **branch**; build via Nixpacks or a Dockerfile.
+- Autodeploy from a linked GitHub **branch**; build via a checked-in **Dockerfile**
+  (railpack auto-detection proved unreliable for this app — deps weren't installed).
   Railway injects `PORT` (bind `0.0.0.0:$PORT`).
 - Public domains with TLS (`*.up.railway.app` or custom) and env vars/secrets via the
   Variables panel. Services in one project can talk over private networking
   (`<service>.railway.internal`).
 
-Implications for this app:
+Implications for this app (implemented):
 
 1. **`ETSYAGENT_DATA_DIR` must point at the volume mount** (e.g. `/data`). The current
    default `~/.config/etsyagent` is inside the ephemeral home and would lose the SQLite
    DB + media on every deploy. SQLite health note: single-writer + one-replica volumes
-   fit this single-user tool fine.
+   fit this single-user tool fine. Set as a service variable.
 2. **OAuth redirect URIs must be the public HTTPS host** when hosted (Etsy + future
    Square). Non-`localhost` redirects require HTTPS, which Railway provides; Etsy may
-   also require the remote URI be approved. Set `PUBLIC_BASE_URL` (e.g. your
-   `RAILWAY_PUBLIC_DOMAIN`) and the callback host is derived from it, so the same
+   also require the remote URI be approved. `PUBLIC_BASE_URL=https://<RAILWAY_PUBLIC_DOMAIN>`
+   is set as a service variable and the callback host is derived from it, so the same
    pipeline works locally (default `http://localhost:<port>`) and remotely.
 3. **Deploy `master`** — the release branch is what runs in production; feature work
-   stays in `develop`.
-4. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
+   stays in `develop` then releases via a `develop → master` PR.
+4. **Build = `Dockerfile`** (python:3.11-slim + `requirements.txt`); `railway.toml`
+   pins the docker builder and restart policy. `.railwayignore` keeps secrets/venv
+   out of manual `railway deployment up` uploads. Note: `railway.toml` (Config as Code)
+   is deprecated in favour of `.railway/railway.ts` as of 2026-12-01 — migrate then.
+5. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
    network name) instead of `localhost:8080` once both are hosted.
-5. The **bookkeeping fold-in** is strongly reinforced by hosting: a Tkinter desktop app
+6. The **bookkeeping fold-in** is strongly reinforced by hosting: a Tkinter desktop app
    can't be hosted at all, while a web ledger deploys alongside etsyagent.
 
 ## 7. Build phases
