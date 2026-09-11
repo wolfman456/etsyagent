@@ -106,10 +106,35 @@ async def _ensure_taxonomy() -> list[dict]:
         return _taxonomy_cache["nodes"]
     client = get_client()
     nodes = await client.get_seller_taxonomy() if _has_client() else []
+    nodes = _flatten_taxonomy(nodes)
     if nodes:
         _taxonomy_cache["fetched_at"] = time.time()
         _taxonomy_cache["nodes"] = nodes
     return nodes
+
+
+def _flatten_taxonomy(nodes: list[dict]) -> list[dict]:
+    """Etsy's seller taxonomy is a nested tree; explode it into a flat list.
+
+    Each emitted node carries a `node_id` and its full path of names so the
+    category dropdown can sort leaves naturally.
+    """
+
+    def walk(items: list[dict], path_names: list[str]) -> None:
+        for node in items:
+            names = path_names + [node.get("name", "")]
+            flat.append(
+                {
+                    "node_id": node["id"],
+                    "name": node.get("name", ""),
+                    "full_path_taxonomy_paths": [names],
+                }
+            )
+            walk(node.get("children") or [], names)
+
+    flat: list[dict] = []
+    walk(nodes, [])
+    return flat
 
 
 def _has_client() -> bool:
@@ -135,6 +160,11 @@ def taxonomy_options(nodes: list[dict]) -> list[tuple[int, str]]:
         label = " > ".join(label_parts)
         options.append((node["node_id"], label))
     return sorted(options, key=lambda item: item[1].lower())
+
+
+async def _taxonomy_options() -> list[tuple[int, str]]:
+    nodes = await _ensure_taxonomy()
+    return taxonomy_options(nodes) if nodes else []
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +297,7 @@ async def product_new_submit(
     price: str = Form(...),
     quantity: int = Form(1),
     listing_type: str = Form("physical"),
-    taxonomy_id: int = Form(...),
+    taxonomy_id: int = Form(0),
     taxonomy_path: str = Form(""),
     who_made: str = Form("i_did"),
     when_made: str = Form("made_to_order"),
@@ -286,8 +316,8 @@ async def product_new_submit(
             price=price.strip(),
             quantity=max(quantity, 1),
             listing_type="download" if listing_type == "download" else "physical",
-            taxonomy_id=taxonomy_id,
-            taxonomy_path=taxonomy_path or f"taxonomy {taxonomy_id}",
+            taxonomy_id=taxonomy_id or None,
+            taxonomy_path=taxonomy_path or (f"taxonomy {taxonomy_id}" if taxonomy_id else ""),
             who_made=who_made if who_made in WHO_MADE_CHOICES else "i_did",
             when_made=when_made if when_made in WHEN_MADE_CHOICES else "made_to_order",
             is_supply=bool(is_supply),
@@ -313,7 +343,7 @@ async def product_new_submit(
 
 
 @app.get("/products/{product_id}", response_class=HTMLResponse)
-def product_detail(request: Request, product_id: int):
+async def product_detail(request: Request, product_id: int):
     with SessionLocal() as session:
         product = session.get(Product, product_id)
         if not product:
@@ -328,6 +358,7 @@ def product_detail(request: Request, product_id: int):
             "product": product_snapshot,
             "logs": logs,
             "shop": shop,
+            "taxonomy_options": await _taxonomy_options(),
         },
     )
 
@@ -365,7 +396,13 @@ async def product_generate(request: Request, product_id: int):
     return template(
         request,
         "product_review.html",
-        {"product": product_snapshot, "logs": logs, "shop": shop, "generated": True},
+        {
+            "product": product_snapshot,
+            "logs": logs,
+            "shop": shop,
+            "generated": True,
+            "taxonomy_options": await _taxonomy_options(),
+        },
     )
 
 
@@ -389,6 +426,26 @@ def product_save(
         session.add(product)
         session.commit()
         product_id = product.id
+    return RedirectResponse(f"/products/{product_id}", status_code=303)
+
+
+@app.post("/products/{product_id}/category", response_class=HTMLResponse)
+def product_category(
+    request: Request,
+    product_id: int,
+    taxonomy_id: int = Form(0),
+    taxonomy_path: str = Form(""),
+):
+    with SessionLocal() as session:
+        product = session.get(Product, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        product.taxonomy_id = taxonomy_id or None
+        product.taxonomy_path = (
+            taxonomy_path or (f"taxonomy {taxonomy_id}" if taxonomy_id else "")
+        )
+        session.add(product)
+        session.commit()
     return RedirectResponse(f"/products/{product_id}", status_code=303)
 
 
@@ -421,7 +478,7 @@ async def product_variations(request: Request, product_id: int):
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         if not product.taxonomy_id:
-            raise HTTPException(status_code=400, detail="Pick a category first.")
+            raise HTTPException(status_code=400, detail="Pick a category on the review page first.")
         shop = get_shop_profile(session)
 
         names = {
@@ -493,7 +550,12 @@ async def product_variations(request: Request, product_id: int):
     return template(
         request,
         "product_review.html",
-        {"product": product_snapshot, "logs": logs, "shop": shop_snapshot},
+        {
+            "product": product_snapshot,
+            "logs": logs,
+            "shop": shop_snapshot,
+            "taxonomy_options": await _taxonomy_options(),
+        },
     )
 
 

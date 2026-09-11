@@ -44,7 +44,7 @@ Filling out Etsy listings is tedious manual work. This project automates it: giv
 
 ### 2.4 Taxonomy (category + attributes)
 
-- `getSellerTaxonomyNodes` — category tree with `node_id`s (e.g., "Art & Collectibles > Prints"); feeds category dropdown.
+- `getSellerTaxonomyNodes` — category tree with `node_id`s (e.g., "Art & Collectibles > Prints"); feeds category dropdown. The endpoint returns a **nested tree** (roots with `children`); `_flatten_taxonomy()` in `app/main.py` explodes it into a flat `node_id` + full-path-of-names list for the dropdown.
 - `getPropertiesByTaxonomyId` — per-category attributes (size/color/material/etc.) with `property_id`, `scale_id`, valid `value_ids`; feeds variation builder and extra-attribute fields.
 
 ### 2.5 Rate limits
@@ -219,6 +219,9 @@ Implications for this app:
 1. ✅ Scaffold — pyproject, config, models, db.
 2. ✅ Auth + client — PKCE flow, token store, typed client, taxonomy/profile bootstrap.
 3. ✅ MVP single product — facts form → AI generate → review → create draft → images → activate.
+   - Category is optional at draft time (the taxonomy dropdown may be empty before
+     Etsy credentials/connect); a picker on the review page sets/changes it before
+     `submit_listing` (which fails fast if still missing).
 4. ✅ Manage listings — table, activate/deactivate/delete.
 5. 🟡 Bulk + digital + variations —
    - ✅ CSV import (column mapping, validation, error rows)
@@ -250,6 +253,7 @@ Legend: ✅ implemented on the `feature/listing-designer` branch, 🟡 partial, 
 - Thin `httpx` client over an Etsy SDK (unmaintained SDKs, local-callback OAuth mismatch).
 - Server-rendered Jinja2 UI, no JS framework (personal tool, minimal moving parts).
 - Local DB is source of truth for in-progress work; Etsy `listing_id` back-references for published state.
+- Schema drift is handled by an additive-only startup migration in `app/models.py::_ensure_schema` (`create_all` never alters existing tables), not Alembic — matches `AGENTS.md` and keeps the single-user tool dependency-free.
 - Price handled as minor units at the API boundary; user enters dollars in the UI.
 - LLM provider pluggable; OpenAI-compatible default, Anthropic supported.
 - No Commercial Access required (single-owner personal tool).
