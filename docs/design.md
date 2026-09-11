@@ -119,7 +119,7 @@ etsyagent/
 
 ## 5. AI content generation
 
-- Adapter factory: provider from env (`OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` for OpenAI-compatible; `ANTHROPIC_API_KEY` for Anthropic). No SDK dep — plain `httpx` against each provider's chat completion API.
+- Adapter factory: provider from env (`OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` for OpenAI-compatible — any provider, incl. free tiers like Groq; `ANTHROPIC_API_KEY` for Anthropic). `OPENAI_JSON_MODE=0` drops `response_format` for endpoints that reject it. No SDK dep — plain `httpx` against each provider's chat completion API.
 - Prompt: product facts + taxonomy path + Etsy constraints (title ≤ 140, ≤ 13 tags, tag ≤ 20 chars, description in Etsy-friendly HTML paragraphs, matched who/when/is_supply context). Ask for strict JSON.
 - Output validated + capped (title length, single tag length, dedupe + tag count); never exceeds Etsy limits even if the model misbehaves.
 
@@ -204,8 +204,9 @@ Implications for this app:
    fit this single-user tool fine.
 2. **OAuth redirect URIs must be the public HTTPS host** when hosted (Etsy + future
    Square). Non-`localhost` redirects require HTTPS, which Railway provides; Etsy may
-   also require the remote URI be approved. Keep the callback host derived from the
-   request so the same pipeline works locally and remotely.
+   also require the remote URI be approved. Set `PUBLIC_BASE_URL` (e.g. your
+   `RAILWAY_PUBLIC_DOMAIN`) and the callback host is derived from it, so the same
+   pipeline works locally (default `http://localhost:<port>`) and remotely.
 3. **Deploy `master`** — the release branch is what runs in production; feature work
    stays in `develop`.
 4. **Gallery integration**: point `GALLERY_URL` at the gallery's public URL (or private
