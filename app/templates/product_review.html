@@ -11,9 +11,43 @@
   <span>Type: {{ product.listing_type }}</span>
   <span>Price: ${{ product.price }}</span>
   <span>Qty: {{ product.quantity }}</span>
-  <span>Category: {{ product.taxonomy_path }}</span>
+  <span>Category: {{ product.taxonomy_path or "not set yet" }}</span>
   {% if product.etsy_listing_id %}<span>Etsy listing: #{{ product.etsy_listing_id }}</span>{% endif %}
 </div>
+
+{% if not product.taxonomy_id %}
+  <div class="notice">No category set yet — Etsy requires one before submitting. Choose it below (taxonomy loads once you're connected to Etsy).</div>
+{% endif %}
+
+<h2>Category</h2>
+{% if taxonomy_options %}
+<form method="post" action="/products/{{ product.id }}/category" class="form">
+  <div class="row">
+    <label>Category
+      <select name="taxonomy_id" required>
+        <option value="" {% if not product.taxonomy_id %}selected{% endif %} disabled>— Choose a category —</option>
+        {% for option in taxonomy_options %}
+        <option value="{{ option[0] }}" {% if product.taxonomy_id == option[0] %}selected{% endif %}>{{ option[1] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="taxonomy_path" value="">
+    <button type="submit" class="primary">Set category</button>
+  </div>
+  <p class="muted">Changing the category may affect which variation properties are available below.</p>
+</form>
+<script>
+  const catSelect = document.querySelector('select[name="taxonomy_id"]');
+  if (catSelect) {
+    catSelect.addEventListener('change', () => {
+      const opt = catSelect.selectedOptions[0];
+      document.querySelector('input[name="taxonomy_path"]').value = opt ? opt.text : '';
+    });
+  }
+</script>
+{% else %}
+<p class="muted">Category list unavailable (no Etsy connection yet — load it via Settings once connected).</p>
+{% endif %}
 
 <form method="post" action="/products/{{ product.id }}/generate" class="inline">
   <button type="submit" class="primary">{% if product.title %}Regenerate{% else %}Generate with AI{% endif %}</button>
@@ -64,7 +98,8 @@
     </form>
     <p class="muted">Prices are per-variant in dollars; leave as the base price if all variants cost the same.</p>
   {% else %}
-    <form method="post" action="/products/{{ product.id }}/variations" class="form" id="variation-form">
+    {% if product.taxonomy_id %}
+      <form method="post" action="/products/{{ product.id }}/variations" class="form" id="variation-form">
       <div class="row">
         <label>Variation 1 <select name="dim_property_id" class="dim-select" id="dim-select-1"></select></label>
         <label>Values (comma-separated) <input type="text" name="dim_values" class="dim-values" placeholder="Red, Blue, Green"></label>
@@ -75,37 +110,40 @@
       </div>
       <p id="dim-empty-note" class="muted" hidden>This category has no variation-capable properties.</p>
       <button type="submit" class="primary">Set up variations</button>
-    </form>
-    <script>
-      (async () => {
-        const form = document.getElementById('variation-form');
-        const selects = form.querySelectorAll('.dim-select');
-        try {
-          const res = await fetch('/taxonomy/{{ product.taxonomy_id }}/properties');
-          const data = await res.json();
-          const props = data.properties || [];
-          if (!props.length) {
-            form.querySelector('button').disabled = true;
-            document.getElementById('dim-empty-note').hidden = false;
-            return;
-          }
-          for (const sel of selects) {
-            for (const p of props) {
-              const opt = document.createElement('option');
-              opt.value = p.property_id;
-              opt.textContent = p.property_name;
-              sel.appendChild(opt);
+      </form>
+      <script>
+        (async () => {
+          const form = document.getElementById('variation-form');
+          const selects = form.querySelectorAll('.dim-select');
+          try {
+            const res = await fetch('/taxonomy/{{ product.taxonomy_id }}/properties');
+            const data = await res.json();
+            const props = data.properties || [];
+            if (!props.length) {
+              form.querySelector('button').disabled = true;
+              document.getElementById('dim-empty-note').hidden = false;
+              return;
             }
+            for (const sel of selects) {
+              for (const p of props) {
+                const opt = document.createElement('option');
+                opt.value = p.property_id;
+                opt.textContent = p.property_name;
+                sel.appendChild(opt);
+              }
+            }
+          } catch (e) {
+            form.querySelector('button').disabled = true;
+            document.getElementById('dim-empty-note').textContent =
+              'Could not load category properties at the moment.';
+            document.getElementById('dim-empty-note').hidden = false;
+            console.error(e);
           }
-        } catch (e) {
-          form.querySelector('button').disabled = true;
-          document.getElementById('dim-empty-note').textContent =
-            'Could not load category properties at the moment.';
-          document.getElementById('dim-empty-note').hidden = false;
-          console.error(e);
-        }
-      })();
-    </script>
+        })();
+      </script>
+    {% else %}
+      <p class="muted">Pick a category above first — variation properties come from the Etsy category.</p>
+    {% endif %}
   {% endif %}
 </section>
 

@@ -23,10 +23,10 @@
           <form method="post" action="/products/{{ p.id }}/delete" class="inline"><button class="link danger" type="submit">Delete</button></form>
         </td>
       </tr>
+      {% if p.error %}<tr><td colspan="6" class="muted">{{ p.error }}</td></tr>{% endif %}
       {% endfor %}
     </tbody>
   </table>
-  {% if p.error %}<div class="muted">{{ p.error }}</div>{% endif %}
 {% else %}
   <p class="muted">No products yet. Create one above or <a href="/import">import a CSV</a>.</p>
 {% endif %}
