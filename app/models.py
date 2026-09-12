@@ -4,8 +4,9 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.sql import text
 
 from app.config import settings
 
@@ -141,7 +142,32 @@ def get_engine():
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(engine)
+    _ensure_schema(engine)
     return engine
+
+
+def _ensure_schema(engine) -> None:
+    """Additive-only startup migration: `create_all` never alters existing tables.
+
+    Handles SQLite DBs created by an older version of the app that are missing
+    columns the ORM now expects (e.g. product.variations/variants). New or
+    changed columns are added with ALTER TABLE; nothing is ever dropped,
+    renamed, or type-changed, so it is safe to run on a DB with real data.
+    """
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        existing = {col["name"] for col in inspector.get_columns(table.name)}
+        with engine.begin() as conn:
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                coltype = column.type.compile(engine.dialect)
+                conn.execute(
+                    text(
+                        f'ALTER TABLE "{table.name}" '
+                        f'ADD COLUMN "{column.name}" {coltype}'
+                    )
+                )
 
 
 engine = get_engine()

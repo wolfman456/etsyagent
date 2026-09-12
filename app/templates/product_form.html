@@ -4,7 +4,10 @@
 <h1>New listing</h1>
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 {% if not taxonomy_options and creds_ok %}
-  <div class="notice">Couldn't load the Etsy category tree (check connectivity / rate limits). You can still pick a category later.</div>
+  <div class="notice">Couldn't load the Etsy category tree (check connectivity / rate limits). Submit without a category — you can pick one on the review page.</div>
+{% endif %}
+{% if not creds_ok %}
+  <div class="notice">Etsy credentials aren't configured yet, so the category list is empty. Submit without a category — you can pick one after connecting in Settings.</div>
 {% endif %}
 <form method="post" action="/products/new" enctype="multipart/form-data" class="form">
   <label>Product name <input type="text" name="name" required placeholder="e.g. Hand-painted ceramic coffee mug"></label>
@@ -19,7 +22,8 @@
     <label>Quantity <input type="number" name="quantity" value="1" min="1"></label>
   </div>
   <label>Category
-    <select name="taxonomy_id" required>
+    <select name="taxonomy_id" {% if taxonomy_options %}required{% endif %}>
+      {% if not taxonomy_options %}<option value="">No categories available — pick later on the review page</option>{% endif %}
       {% for option in taxonomy_options %}
       <option value="{{ option[0] }}">{{ option[1] }}</option>
       {% endfor %}

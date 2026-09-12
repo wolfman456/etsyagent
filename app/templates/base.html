@@ -23,6 +23,7 @@
       {% elif not scopes_ok %}⚠ Scopes incomplete
       {% else %}✓ Connected{% if shop %} — {{ shop.shop_name }}{% endif %}{% endif %}
     </span>
+    <span class="status ai-status">{{ "AI · " ~ settings.llm_provider ~ (" · " ~ settings.openai_model if settings.llm_provider == "openai" else "") if settings.llm_provider else "AI · none" }}</span>
   </header>
   <main class="container">
     {% if shop and not shop.ready_for_physical %}

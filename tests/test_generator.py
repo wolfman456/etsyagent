@@ -3,6 +3,7 @@ import pytest
 from app.ai.generator import (
     DraftContent,
     ProductFacts,
+    build_openai_payload,
     cap_materials,
     cap_tags,
     extract_json,
@@ -22,6 +23,18 @@ def test_cap_tags_limits_and_dedupes():
     tags = ["Wood", "wood", "VeryLongTagExceedingTwentyChars!!", "Handmade", "Wood", ""]
     result = cap_tags(tags)
     assert result == ["Wood", "Handmade"]
+
+
+def test_build_openai_payload_json_mode_on():
+    payload = build_openai_payload(make_settings(), "prompt")
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["temperature"] == 0.7
+    assert payload["model"] == "gpt-4o-mini"
+
+
+def test_build_openai_payload_json_mode_off():
+    payload = build_openai_payload(make_settings(openai_json_mode=False), "prompt")
+    assert "response_format" not in payload
 
 
 def test_cap_tags_max_count():

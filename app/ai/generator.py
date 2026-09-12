@@ -115,14 +115,20 @@ Product:
 """
 
 
-async def _call_openai(settings: Settings, prompt: str) -> str:
-    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
-    payload = {
+def build_openai_payload(settings: Settings, prompt: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "model": settings.openai_model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
-        "response_format": {"type": "json_object"},
     }
+    if settings.openai_json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    return payload
+
+
+async def _call_openai(settings: Settings, prompt: str) -> str:
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+    payload = build_openai_payload(settings, prompt)
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{settings.openai_base_url.rstrip('/')}/chat/completions",

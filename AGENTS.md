@@ -56,6 +56,11 @@ integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 
 - **From `models.py`: session rows passed to templates must be detached-safe.**
   The `_warm()` helper in `app/main.py` force-loads column attributes before the
   `SessionLocal` context closes; always `_warm()` objects handed to a template.
+- **Schema drift is handled at startup, not by Alembic.** `create_all` never alters
+  an existing table, so an old DB missing a new ORM column 500s every page until
+  `_ensure_schema()` in `app/models.py` adds it (`ALTER TABLE ... ADD COLUMN`, additive
+  only — never drops/retypes). It runs on every boot, so just restarting the app
+  repairs a stale DB.
 - SQLite on-disk file lives at `~/.config/etsyagent/etsyagent.db` (or
   `ETSYAGENT_DATA_DIR`); media uploads land in `{data_dir}/media`. Never commit
   tokens/media — `.gitignore` only ignores `.env` and `.data/`.
@@ -74,8 +79,9 @@ integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 
 - In `etsyagent` the Etsy trademark disclaimer is displayed on the Connect page
   (required by Etsy API terms).
 - **Railway hosting (planned, docs/design.md §6.3)**: deployments have ephemeral
-  filesystems — set `ETSYAGENT_DATA_DIR` to a mounted volume (e.g. `/data`) and bind
-  `0.0.0.0:$PORT`; OAuth redirect URIs use the public HTTPS host when deployed.
+  filesystems — set `ETSYAGENT_DATA_DIR` to a mounted volume (e.g. `/data`), bind
+  `0.0.0.0:$PORT`, and set `PUBLIC_BASE_URL` (public HTTPS host) so the OAuth
+  callback uses the remote host instead of `localhost`.
 
 ## Workflow
 

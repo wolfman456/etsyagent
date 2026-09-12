@@ -5,6 +5,14 @@
 {% if request.query_params.get("saved") %}<div class="ok-box">Settings saved.</div>{% endif %}
 {% if request.query_params.get("refreshed") %}<div class="ok-box">Shop profiles refreshed from Etsy.</div>{% endif %}
 
+<h2>AI listing generation</h2>
+{% if settings.llm_provider %}
+  <p>Provider: <strong>{{ settings.llm_provider }}</strong>{% if settings.llm_provider == "openai" %} · model <strong>{{ settings.openai_model }}</strong> ({{ settings.openai_base_url }}){% endif %}</p>
+  <p class="muted">Key read from <code>.env</code> at startup — restart the app after changing it.</p>
+{% else %}
+  <div class="notice">No LLM provider configured. Add <code>OPENAI_API_KEY</code> (plus optional <code>OPENAI_BASE_URL</code>/<code>OPENAI_MODEL</code>) to <code>.env</code> and restart.</div>
+{% endif %}
+
 {% if not shop %}
   <div class="notice"><a href="/connect">Connect your shop</a> to configure profiles.</div>
 {% else %}
