@@ -78,10 +78,12 @@ integer-cents money). Nothing beyond the docs has changed yet — phases 7–10 
   data dir; tests use their own in-memory engine (`tests/test_listing_builder.py`).
 - In `etsyagent` the Etsy trademark disclaimer is displayed on the Connect page
   (required by Etsy API terms).
-- **Railway hosting (planned, docs/design.md §6.3)**: deployments have ephemeral
+- **Railway hosting (docs/design.md §6.3, live)**: deployments have ephemeral
   filesystems — set `ETSYAGENT_DATA_DIR` to a mounted volume (e.g. `/data`), bind
   `0.0.0.0:$PORT`, and set `PUBLIC_BASE_URL` (public HTTPS host) so the OAuth
-  callback uses the remote host instead of `localhost`.
+  callback uses the remote host instead of `localhost`. Deploy from `master` via the
+  checked-in `Dockerfile` (builder = docker in `railway.toml`); use `railway deployment up`
+  for manual deploys — `.railwayignore` stops secrets/venv being uploaded.
 
 ## Workflow
 
