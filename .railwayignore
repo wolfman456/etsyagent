@@ -1,0 +1,15 @@
+# Never upload local-only files / secrets to Railway (railway up / autodeploy)
+.env
+.venv
+venv
+.git
+.gitignore
+.data
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.idea
+etsyagent.egg-info
+tests
+docs
