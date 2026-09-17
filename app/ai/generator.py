@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,6 +16,19 @@ MAX_TAGS = 13
 MAX_TAG_LEN = 20
 MAX_MATERIALS = 13
 MAX_MATERIAL_LEN = 50
+MAX_NAME_LEN = 80
+MAX_PRICE_LEN = 16
+MAX_CATEGORY_LEN = 120
+# Anthropic caps images at 5MB each; OpenAI allows more. Be safe for both.
+MAX_VISION_IMAGE_BYTES = 5 * 1024 * 1024
+
+IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 
 @dataclass
@@ -22,6 +37,10 @@ class DraftContent:
     description: str = ""
     tags: list[str] = field(default_factory=list)
     materials: list[str] = field(default_factory=list)
+    # Photo-driven extras; empty when generating from text facts only.
+    name: str = ""
+    price: str = ""
+    category: str = ""
 
 
 @dataclass
@@ -76,6 +95,9 @@ def normalize_generated(data: dict[str, Any]) -> DraftContent:
         description=str(data.get("description") or "").strip(),
         tags=cap_tags(tags),
         materials=cap_materials(materials),
+        name=str(data.get("name") or "").strip()[:MAX_NAME_LEN],
+        price=str(data.get("price") or "").strip()[:MAX_PRICE_LEN],
+        category=str(data.get("category") or "").strip()[:MAX_CATEGORY_LEN],
     )
 
 
@@ -114,11 +136,56 @@ Product:
 - seller notes: {notes}
 """
 
+VISUAL_PROMPT_TEMPLATE = """A photo of the item to sell on Etsy is attached. Produce ONLY a
+JSON object with keys:
+name (short product name, <= 80 chars), price (a reasonable retail USD price as a plain
+number like "24.99"; use "" if you cannot suggest one), category (a short guess at the best
+Etsy category as a broad keyword phrase like "Kitchen & Dining" or "Jewelry"; use "" if
+unsure), title (string, <= 140 chars, no emojis), description (string, 3-5 short HTML
+paragraphs using <p>...</p>, keyword-rich), tags (array of <= 13 strings, each <= 20 chars,
+no duplicates), materials (array of <= 13 strings).
 
-def build_openai_payload(settings: Settings, prompt: str) -> dict[str, Any]:
+Rules: base everything on what is visible in the photo together with the seller facts
+below — never invent hidden details, features, materials, or certifications you cannot see.
+Facts (blank values are unknown and may be derived from the photo):
+- name: {name}
+- category: {taxonomy_path}
+- price: {price}
+- "who made it": {who_made}, "when": {when_made}, supply/craft-supply item: {is_supply}
+- seller notes: {notes}
+"""
+
+
+def image_data_url(path: str | Path) -> str:
+    text = Path(path).read_bytes()
+    media_type = IMAGE_MEDIA_TYPES.get(Path(path).suffix.lower(), "image/jpeg")
+    encoded = base64.b64encode(text).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
+def split_data_url(url: str) -> tuple[str, str]:
+    """Return (media_type, base64 payload) for a data: URL (Anthropic's format)."""
+    if "," not in url:
+        raise ValueError("Invalid image data URL")
+    mime, _, data = url.partition(",")
+    mime = mime[len("data:") :]
+    if mime.endswith(";base64"):
+        mime = mime[: -len(";base64")]
+    return mime, data
+
+
+def build_openai_payload(
+    settings: Settings, prompt: str, images: list[str] | None = None
+) -> dict[str, Any]:
+    message_content: Any = prompt
+    if images:
+        parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for image_url in images:
+            parts.append({"type": "image_url", "image_url": {"url": image_url}})
+        message_content = parts
     payload: dict[str, Any] = {
         "model": settings.openai_model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": message_content}],
         "temperature": 0.7,
     }
     if settings.openai_json_mode:
@@ -126,9 +193,11 @@ def build_openai_payload(settings: Settings, prompt: str) -> dict[str, Any]:
     return payload
 
 
-async def _call_openai(settings: Settings, prompt: str) -> str:
+async def _call_openai(
+    settings: Settings, prompt: str, images: list[str] | None = None
+) -> str:
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
-    payload = build_openai_payload(settings, prompt)
+    payload = build_openai_payload(settings, prompt, images)
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{settings.openai_base_url.rstrip('/')}/chat/completions",
@@ -140,16 +209,28 @@ async def _call_openai(settings: Settings, prompt: str) -> str:
     return body["choices"][0]["message"]["content"]
 
 
-async def _call_anthropic(settings: Settings, prompt: str) -> str:
+async def _call_anthropic(
+    settings: Settings, prompt: str, images: list[str] | None = None
+) -> str:
     headers = {
         "x-api-key": settings.anthropic_api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+    content: list[dict[str, Any]] = []
+    for image_url in images or []:
+        media_type, data = split_data_url(image_url)
+        content.append(
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": data},
+            }
+        )
+    content.append({"type": "text", "text": prompt})
     payload = {
         "model": settings.anthropic_model,
         "max_tokens": 1024,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
     }
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
@@ -160,27 +241,58 @@ async def _call_anthropic(settings: Settings, prompt: str) -> str:
     return "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
 
 
-async def generate_draft(settings: Settings, facts: ProductFacts) -> DraftContent:
+def _format_facts(facts: ProductFacts) -> dict[str, str]:
+    attributes_str = (
+        json.dumps(facts.attributes, ensure_ascii=False) if facts.attributes else "(none)"
+    )
+    return {
+        "name": facts.name,
+        "taxonomy_path": facts.taxonomy_path or "(unspecified)",
+        "price": facts.price or "(unspecified)",
+        "who_made": facts.who_made,
+        "when_made": facts.when_made,
+        "is_supply": "yes" if facts.is_supply else "no",
+        "attributes": attributes_str,
+        "notes": facts.notes or "(none)",
+    }
+
+
+def _to_data_urls(images: list[str | Path] | None) -> tuple[list[str], list[str]]:
+    """Encode readable, size-ok images. Returns (data_urls, skipped_sources)."""
+    if not images:
+        return [], []
+    data_urls: list[str] = []
+    skipped: list[str] = []
+    for source in images:
+        path = Path(source)
+        try:
+            if not path.exists() or path.stat().st_size > MAX_VISION_IMAGE_BYTES:
+                skipped.append(str(source))
+                continue
+            data_urls.append(image_data_url(path))
+        except OSError as exc:
+            skipped.append(f"{source} ({exc})")
+    return data_urls, skipped
+
+
+async def generate_draft(
+    settings: Settings, facts: ProductFacts, images: list[str | Path] | None = None
+) -> DraftContent:
     if settings.llm_provider is None:
         raise RuntimeError(
             "No LLM provider configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env."
         )
-    attributes_str = (
-        json.dumps(facts.attributes, ensure_ascii=False) if facts.attributes else "(none)"
-    )
-    prompt = PROMPT_TEMPLATE.format(
-        name=facts.name,
-        taxonomy_path=facts.taxonomy_path or "(unspecified)",
-        price=facts.price or "(unspecified)",
-        who_made=facts.who_made,
-        when_made=facts.when_made,
-        is_supply="yes" if facts.is_supply else "no",
-        attributes=attributes_str,
-        notes=facts.notes or "(none)",
+    data_urls, skipped = _to_data_urls(images)
+    if images and not data_urls:
+        raise RuntimeError(
+            "No readable photo under 5MB for the AI: " + "; ".join(skipped)
+        )
+    prompt = (VISUAL_PROMPT_TEMPLATE if data_urls else PROMPT_TEMPLATE).format(
+        **_format_facts(facts)
     )
     if settings.anthropic_api_key:
-        raw = await _call_anthropic(settings, prompt)
+        raw = await _call_anthropic(settings, prompt, data_urls or None)
     else:
-        raw = await _call_openai(settings, prompt)
+        raw = await _call_openai(settings, prompt, data_urls or None)
     parsed = extract_json(raw)
     return normalize_generated(parsed)

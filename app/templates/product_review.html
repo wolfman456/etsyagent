@@ -2,7 +2,7 @@
 {% block title %} — {{ product.name }}{% endblock %}
 {% block content %}
 <h1>{{ product.name }}</h1>
-{% if generated %}<div class="ok-box">AI draft generated — review and edit before submitting.</div>{% endif %}
+{% if generated %}<div class="ok-box">AI draft generated{% if from_photo %} from your photo{% endif %} — review and edit before submitting.</div>{% endif %}
 {% if request.query_params.get("error") %}<div class="error">{{ request.query_params.get("error") }}</div>{% endif %}
 {% if request.query_params.get("variations_error") %}<div class="error">{{ request.query_params.get("variations_error") }}</div>{% endif %}
 
@@ -50,9 +50,9 @@
 {% endif %}
 
 <form method="post" action="/products/{{ product.id }}/generate" class="inline">
-  <button type="submit" class="primary">{% if product.title %}Regenerate{% else %}Generate with AI{% endif %}</button>
+  <button type="submit" class="primary">{% if product.title %}Regenerate with AI{% else %}Generate with AI{% endif %}</button>
 </form>
-<p class="muted">Generates title (≤140 chars), description, up to 13 tags and materials from your facts. Edit below freely.</p>
+<p class="muted">{% if product.image_list() %}Uses your photo(s) via AI vision — drafts title (≤140 chars), description, tags, materials and fills the name/price/category when empty.{% else %}Generates title (≤140 chars), description, up to 13 tags and materials from your facts. Upload a photo to let the AI see the item.{% endif %} Edit below freely.</p>
 
 <form method="post" action="/products/{{ product.id }}/save" class="form">
   <label>Title <input type="text" name="title" value="{{ product.title }}" maxlength="140" required></label>
