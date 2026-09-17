@@ -111,7 +111,8 @@ etsyagent/
 2. **Products** — table of local products: name, category, price, status badge, Etsy listing id, actions (continue, submit, delete).
 3. **New Listing** — multi-step form:
    - Facts: name, type, price, quantity, category (taxonomy tree, loaded + cached from Etsy), photos upload, who_made/when_made/is_supply.
-   - Generate: "Generate with AI" button → fills title/description/tags (all editable); regenerate/partial fields.
+   - **Photo-only draft:** name + price are optional — upload a photo and leave them blank and the agent runs *AI vision* (photo → data URL → OpenAI/Anthropic image content block) to draft name, price, category guess, title/description/tags/materials. The category guess is fuzzy-matched against the live taxonomy tree; unmatched guesses stay for the manual picker.
+   - Generate: "Generate with AI" button (uses product photos for vision when present) → fills title/description/tags (all editable); only fills name/price/category when they're empty; regenerate/partial fields.
    - Review: shows validated Etsy payload; "Submit to Etsy" → pipeline above.
 4. **Listings** — `getListingsByShop` snapshot: title, price, state, views; actions activate/deactivate/duplicate-as-draft/delete.
 5. **Import CSV** — upload, column mapping, preview, run throttled queue with progress + rate-limit budget guard.
@@ -120,6 +121,7 @@ etsyagent/
 ## 5. AI content generation
 
 - Adapter factory: provider from env (`OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` for OpenAI-compatible — any provider, incl. free tiers like Groq; `ANTHROPIC_API_KEY` for Anthropic). `OPENAI_JSON_MODE=0` drops `response_format` for endpoints that reject it. No SDK dep — plain `httpx` against each provider's chat completion API.
+- **Vision:** uploaded photos are read as base64 `data:` URLs and sent as image content blocks (OpenAI `image_url` parts, Anthropic `image` blocks). The visual prompt additionally returns `name`, `price`, and a `category` keyword so a whole listing can be drafted from a photo alone. Images over 5MB are skipped with a clear error.
 - Prompt: product facts + taxonomy path + Etsy constraints (title ≤ 140, ≤ 13 tags, tag ≤ 20 chars, description in Etsy-friendly HTML paragraphs, matched who/when/is_supply context). Ask for strict JSON.
 - Output validated + capped (title length, single tag length, dedupe + tag count); never exceeds Etsy limits even if the model misbehaves.
 
@@ -227,6 +229,8 @@ Implications for this app (implemented):
    - Category is optional at draft time (the taxonomy dropdown may be empty before
      Etsy credentials/connect); a picker on the review page sets/changes it before
      `submit_listing` (which fails fast if still missing).
+   - ✅ Photo-only draft — name/price optional; AI vision drafts the full listing
+     (name, price, category guess, copy) from an uploaded photo.
 4. ✅ Manage listings — table, activate/deactivate/delete.
 5. 🟡 Bulk + digital + variations —
    - ✅ CSV import (column mapping, validation, error rows)

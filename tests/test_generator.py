@@ -8,7 +8,9 @@ from app.ai.generator import (
     cap_tags,
     extract_json,
     generate_draft,
+    image_data_url,
     normalize_generated,
+    split_data_url,
 )
 from app.config import Settings
 
@@ -83,9 +85,9 @@ async def test_generate_draft_no_provider_raises():
 
 @pytest.mark.asyncio
 async def test_generate_draft_openai(monkeypatch):
-    async def fake_openai(settings, prompt):
+    async def fake_openai(settings, prompt, images=None):
         assert "Mug" in prompt
-        assert "openai.com" not in prompt or True
+        assert images is None
         return '{"title": "Title", "description": "<p>Desc</p>", "tags": ["a"]}'
 
     monkeypatch.setattr("app.ai.generator._call_openai", fake_openai)
@@ -98,7 +100,7 @@ async def test_generate_draft_openai(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_draft_anthropic(monkeypatch):
-    async def fake_anthropic(settings, prompt):
+    async def fake_anthropic(settings, prompt, images=None):
         return '{"title": "T", "description": "<p>D</p>", "tags": []}'
 
     monkeypatch.setattr("app.ai.generator._call_anthropic", fake_anthropic)
@@ -106,3 +108,57 @@ async def test_generate_draft_anthropic(monkeypatch):
         make_settings(anthropic_api_key="ant-test"), ProductFacts(name="Mug")
     )
     assert draft.title == "T"
+
+
+def test_image_data_url_and_split(tmp_path):
+    img = tmp_path / "photo.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfakepng")
+    url = image_data_url(img)
+    assert url.startswith("data:image/png;base64,")
+    media, data = split_data_url(url)
+    assert media == "image/png"
+    assert data == url.split(",", 1)[1]
+
+
+def test_build_openai_payload_with_images():
+    url = "data:image/jpeg;base64,AAAA"
+    payload = build_openai_payload(make_settings(), "Look at this", [url])
+    content = payload["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "Look at this"}
+    assert content[1] == {"type": "image_url", "image_url": {"url": url}}
+
+
+def test_normalize_generated_extended_fields():
+    draft = normalize_generated(
+        {
+            "name": "Ceramic Mug",
+            "price": 24.99,
+            "category": "Home & Living > Kitchen & Dining",
+            "title": "Mug",
+            "description": "<p>d</p>",
+            "tags": ["a"],
+        }
+    )
+    assert draft.name == "Ceramic Mug"
+    assert draft.price == "24.99"
+    assert draft.category == "Home & Living > Kitchen & Dining"
+
+
+@pytest.mark.asyncio
+async def test_generate_draft_passes_photos(monkeypatch, tmp_path):
+    img = tmp_path / "photo.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfakepng")
+
+    async def fake_openai(settings, prompt, images=None):
+        assert images and images[0].startswith("data:image/png;base64,")
+        assert "photo of the item" in prompt
+        return (
+            '{"name": "Mug", "price": "24.99", "title": "T", "description": "<p>D</p>", '
+            '"tags": []}'
+        )
+
+    monkeypatch.setattr("app.ai.generator._call_openai", fake_openai)
+    draft = await generate_draft(make_settings(), ProductFacts(name=""), images=[img])
+    assert draft.name == "Mug"
+    assert draft.price == "24.99"
