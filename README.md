@@ -7,6 +7,9 @@ title/description/tags with an LLM, you review and edit, then it creates the
 listing, uploads images, and publishes it to your Etsy shop through the official
 Etsy Open API v3. Also supports bulk CSV import and managing existing listings.
 
+Just upload a photo and leave the name/price blank: AI vision (OpenAI or Anthropic)
+drafts the whole listing — name, price, category guess, and copy — from the image.
+
 ## Quick start
 
 ```sh

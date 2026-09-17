@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
-from app.ai.generator import ProductFacts, generate_draft
+from app.ai.generator import DraftContent, ProductFacts, generate_draft
 from app.auth.oauth import (
     build_authorize_url,
     build_oauth_config,
@@ -167,6 +167,51 @@ async def _taxonomy_options() -> list[tuple[int, str]]:
     return taxonomy_options(nodes) if nodes else []
 
 
+def _match_taxonomy(nodes: list[dict], guess: str) -> tuple[int, str] | None:
+    """Find the deepest taxonomy node whose path contains the LLM's guessed keyword."""
+    if not guess or not nodes:
+        return None
+    haystack = guess.strip().lower()
+    best: tuple[int, str] | None = None
+    best_parts = -1
+    for node in nodes:
+        paths = node.get("full_path_taxonomy_paths") or []
+        label = " > ".join(paths[0]) if paths else node.get("name", "")
+        if haystack in label.lower():
+            depth = len(paths[0]) if paths else 1
+            if depth > best_parts:
+                best = (node["node_id"], label)
+                best_parts = depth
+    return best
+
+
+def _visual_product_sources(product: Product) -> list[Path]:
+    sources = [settings.media_dir / name for name in product.image_list()]
+    return [s for s in sources if s.exists()]
+
+
+def _apply_visual_draft(product: Product, draft: DraftContent, nodes: list[dict]) -> None:
+    """Fill + generate fields from a photo-driven draft without clobbering user input."""
+    if not product.name.strip() and draft.name:
+        product.name = draft.name
+    if not product.price.strip() and draft.price:
+        try:
+            parse_price(draft.price)
+        except ValueError:
+            pass
+        else:
+            product.price = draft.price
+    match = _match_taxonomy(nodes, draft.category)
+    if match:
+        product.taxonomy_id, product.taxonomy_path = match
+    if draft.title:
+        product.title = draft.title
+    if draft.description:
+        product.description = draft.description
+    product.tags = draft.tags
+    product.materials = draft.materials
+
+
 # ---------------------------------------------------------------------------
 # Connect / OAuth
 # ---------------------------------------------------------------------------
@@ -293,8 +338,8 @@ async def product_new_page(request: Request):
 @app.post("/products/new", response_class=HTMLResponse)
 async def product_new_submit(
     request: Request,
-    name: str = Form(...),
-    price: str = Form(...),
+    name: str = Form(""),
+    price: str = Form(""),
     quantity: int = Form(1),
     listing_type: str = Form("physical"),
     taxonomy_id: int = Form(0),
@@ -306,10 +351,12 @@ async def product_new_submit(
     images: Annotated[list[UploadFile], File()] = None,
     digital_file: Annotated[UploadFile | None, File()] = None,
 ):
-    try:
-        parse_price(price)
-    except ValueError:
-        return template(request, "product_form.html", {"error": "Invalid price", "product": None})
+    if price.strip():
+        try:
+            parse_price(price)
+        except ValueError:
+            err = {"error": "Invalid price", "product": None}
+            return template(request, "product_form.html", err)
     with SessionLocal() as session:
         product = Product(
             name=name.strip(),
@@ -336,10 +383,43 @@ async def product_new_submit(
             target = settings.media_dir / digital_file.filename
             target.write_bytes(await digital_file.read())
             product.digital_file = target.name
+        if not product.name.strip() and not saved_images:
+            return template(
+                request,
+                "product_form.html",
+                {"error": "Add a product name or upload at least one photo.", "product": None},
+            )
+        generated = False
+        photo_draft = False
+        if saved_images and (not product.name.strip() or not product.price.strip()):
+            try:
+                draft = await generate_draft(
+                    settings,
+                    ProductFacts(
+                        name=product.name,
+                        taxonomy_path=product.taxonomy_path,
+                        listing_type=product.listing_type,
+                        price=product.price,
+                        who_made=product.who_made,
+                        when_made=product.when_made,
+                        is_supply=product.is_supply,
+                        notes=notes,
+                    ),
+                    images=_visual_product_sources(product),
+                )
+            except Exception as exc:  # noqa: BLE001
+                product.error = f"AI draft failed: {exc}"
+            else:
+                _apply_visual_draft(product, draft, await _ensure_taxonomy())
+                generated = True
+                photo_draft = True
         session.add(product)
         session.commit()
         product_id = product.id
-    return RedirectResponse(f"/products/{product_id}?note={notes}", status_code=303)
+    params = "?generated=1" if generated else (f"?note={notes}" if notes else "")
+    if photo_draft:
+        params += "&from_photo=1"
+    return RedirectResponse(f"/products/{product_id}{params}", status_code=303)
 
 
 @app.get("/products/{product_id}", response_class=HTMLResponse)
@@ -358,6 +438,8 @@ async def product_detail(request: Request, product_id: int):
             "product": product_snapshot,
             "logs": logs,
             "shop": shop,
+            "generated": bool(request.query_params.get("generated")),
+            "from_photo": bool(request.query_params.get("from_photo")),
             "taxonomy_options": await _taxonomy_options(),
         },
     )
@@ -380,14 +462,12 @@ async def product_generate(request: Request, product_id: int):
             is_supply=product.is_supply,
             notes=request.query_params.get("note", ""),
         )
+        images = _visual_product_sources(product)
         try:
-            draft = await generate_draft(settings, facts)
+            draft = await generate_draft(settings, facts, images=images or None)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"AI generation failed: {exc}") from exc
-        product.title = draft.title
-        product.description = draft.description
-        product.tags = draft.tags
-        product.materials = draft.materials
+        _apply_visual_draft(product, draft, await _ensure_taxonomy())
         session.add(product)
         session.commit()
         product_snapshot = _warm(product)
@@ -401,6 +481,7 @@ async def product_generate(request: Request, product_id: int):
             "logs": logs,
             "shop": shop,
             "generated": True,
+            "from_photo": bool(images),
             "taxonomy_options": await _taxonomy_options(),
         },
     )
