@@ -13,6 +13,20 @@
   <form action="/connect/start" method="get">
     <button type="submit" class="primary">{% if connected %}Re-connect{% else %}Connect to Etsy{% endif %}</button>
   </form>
+  {% if not connected %}
+  <div class="notice">
+    <strong>Before you click Connect</strong> — Etsy only redirects back to a URI that is
+    registered in your app: <a href="https://www.etsy.com/developers/your-apps" target="_blank" rel="noopener">etsy.com/developers/your-apps</a>.
+    The callback this site uses is:
+    <p><code class="code-block">{{ settings.redirect_uri }}</code></p>
+    {% if settings.public_base_url %}
+    You are on the hosted site — add the hosted callback above to your Etsy app, then click Connect below.
+    {% else %}
+    You are on a local server — make sure <code>localhost</code> (not 127.0.0.1) and port
+    {{ settings.etsy_redirect_port }} match what you registered.
+    {% endif %}
+  </div>
+  {% endif %}
 {% else %}
   <div class="error">Set <code>ETSY_KEYSTRING</code> and <code>ETSY_SHARED_SECRET</code> in <code>.env</code> first (see <code>.env.example</code>).</div>
 {% endif %}
