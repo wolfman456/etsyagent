@@ -1,8 +1,10 @@
+import httpx
 import pytest
 
 from app.ai.generator import (
     DraftContent,
     ProductFacts,
+    _retry_on_429,
     build_openai_payload,
     cap_materials,
     cap_tags,
@@ -162,3 +164,65 @@ async def test_generate_draft_passes_photos(monkeypatch, tmp_path):
     draft = await generate_draft(make_settings(), ProductFacts(name=""), images=[img])
     assert draft.name == "Mug"
     assert draft.price == "24.99"
+
+
+@pytest.mark.asyncio
+async def test_generate_draft_downscales_oversized_photo(monkeypatch, tmp_path):
+    import os
+
+    from PIL import Image
+
+    img = tmp_path / "big.png"
+    noise = Image.frombytes("RGB", (2048, 2048), os.urandom(2048 * 2048 * 3))
+    noise.save(img, format="PNG")
+    assert img.stat().st_size > 5 * 1024 * 1024
+
+    async def fake_openai(settings, prompt, images=None):
+        assert images, "oversized photo must be downscaled and sent"
+        assert images[0].startswith("data:image/jpeg;base64,")
+        payload = images[0].split(",", 1)[1]
+        assert len(payload) * 3 // 4 <= 5 * 1024 * 1024
+        return '{"name": "Mug", "price": "10", "title": "T", "description": "<p>D</p>", "tags": []}'
+
+    monkeypatch.setattr("app.ai.generator._call_openai", fake_openai)
+    draft = await generate_draft(make_settings(), ProductFacts(name=""), images=[img])
+    assert draft.name == "Mug"
+
+
+@pytest.mark.asyncio
+async def test_retry_on_429_backs_off_then_succeeds(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr("app.ai.generator.asyncio.sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def request():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"retry-after": "2"}, json={})
+        return httpx.Response(200, json={"ok": True})
+
+    response = await _retry_on_429(request)
+    assert response.status_code == 200
+    assert calls["n"] == 2
+    assert sleeps == [2]
+
+
+@pytest.mark.asyncio
+async def test_retry_on_429_exhausts_retries(monkeypatch):
+    async def fake_sleep(delay):
+        pass
+
+    monkeypatch.setattr("app.ai.generator.asyncio.sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def request():
+        calls["n"] += 1
+        return httpx.Response(429, json={})
+
+    response = await _retry_on_429(request, max_retries=2)
+    assert response.status_code == 429
+    assert calls["n"] == 3

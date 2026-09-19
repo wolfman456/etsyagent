@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +24,8 @@ MAX_PRICE_LEN = 16
 MAX_CATEGORY_LEN = 120
 # Anthropic caps images at 5MB each; OpenAI allows more. Be safe for both.
 MAX_VISION_IMAGE_BYTES = 5 * 1024 * 1024
+# Long edge target when downscaling oversize photos before encoding.
+VISION_TARGET_DIMENSION = 1024
 
 IMAGE_MEDIA_TYPES = {
     ".jpg": "image/jpeg",
@@ -193,16 +198,42 @@ def build_openai_payload(
     return payload
 
 
+async def _retry_on_429(
+    request: Callable[[], Awaitable[httpx.Response]],
+    *,
+    max_retries: int = 4,
+    backoff_max: int = 60,
+) -> httpx.Response:
+    """Send a request, retrying 429s with Retry-After backoff (mirrors EtsyClient)."""
+    last: httpx.Response | None = None
+    for attempt in range(max_retries + 1):
+        last = await request()
+        if last.status_code != 429 or attempt >= max_retries:
+            break
+        retry_after = last.headers.get("retry-after")
+        try:
+            delay = min(int(retry_after or 0), backoff_max)
+        except (TypeError, ValueError):
+            delay = 5
+        if not delay:
+            delay = 5
+        await asyncio.sleep(delay)
+    assert last is not None
+    return last
+
+
 async def _call_openai(
     settings: Settings, prompt: str, images: list[str] | None = None
 ) -> str:
     headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
     payload = build_openai_payload(settings, prompt, images)
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{settings.openai_base_url.rstrip('/')}/chat/completions",
-            headers=headers,
-            json=payload,
+        response = await _retry_on_429(
+            lambda: client.post(
+                f"{settings.openai_base_url.rstrip('/')}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
         )
         response.raise_for_status()
         body = response.json()
@@ -233,8 +264,10 @@ async def _call_anthropic(
         "messages": [{"role": "user", "content": content}],
     }
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages", headers=headers, json=payload
+        response = await _retry_on_429(
+            lambda: client.post(
+                "https://api.anthropic.com/v1/messages", headers=headers, json=payload
+            )
         )
         response.raise_for_status()
         body = response.json()
@@ -257,8 +290,35 @@ def _format_facts(facts: ProductFacts) -> dict[str, str]:
     }
 
 
+def _downscale_for_vision(path: Path) -> bytes | None:
+    """Re-encode an oversized photo small enough for the vision APIs.
+
+    Shrinks the long edge to VISION_TARGET_DIMENSION and re-encodes as JPEG,
+    stepping quality down until the image fits the size cap. Returns None if
+    Pillow is unavailable or the file cannot be decoded.
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return None
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
+            im.thumbnail((VISION_TARGET_DIMENSION, VISION_TARGET_DIMENSION))
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            for quality in (85, 70, 55, 40, 25):
+                buffer = io.BytesIO()
+                im.save(buffer, format="JPEG", quality=quality)
+                if buffer.tell() <= MAX_VISION_IMAGE_BYTES:
+                    return buffer.getvalue()
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def _to_data_urls(images: list[str | Path] | None) -> tuple[list[str], list[str]]:
-    """Encode readable, size-ok images. Returns (data_urls, skipped_sources)."""
+    """Encode readable images, downscaling oversize ones. Returns (data_urls, skipped_sources)."""
     if not images:
         return [], []
     data_urls: list[str] = []
@@ -266,10 +326,21 @@ def _to_data_urls(images: list[str | Path] | None) -> tuple[list[str], list[str]
     for source in images:
         path = Path(source)
         try:
-            if not path.exists() or path.stat().st_size > MAX_VISION_IMAGE_BYTES:
+            if not path.exists():
                 skipped.append(str(source))
                 continue
-            data_urls.append(image_data_url(path))
+            if path.stat().st_size <= MAX_VISION_IMAGE_BYTES:
+                data_urls.append(image_data_url(path))
+                continue
+            compacted = _downscale_for_vision(path)
+            if compacted is None:
+                skipped.append(
+                    f"{source} (over {MAX_VISION_IMAGE_BYTES // (1024 * 1024)}MB, "
+                    "could not downscale)"
+                )
+                continue
+            encoded = base64.b64encode(compacted).decode("ascii")
+            data_urls.append(f"data:image/jpeg;base64,{encoded}")
         except OSError as exc:
             skipped.append(f"{source} ({exc})")
     return data_urls, skipped
@@ -284,9 +355,7 @@ async def generate_draft(
         )
     data_urls, skipped = _to_data_urls(images)
     if images and not data_urls:
-        raise RuntimeError(
-            "No readable photo under 5MB for the AI: " + "; ".join(skipped)
-        )
+        raise RuntimeError("No usable photo for the AI: " + "; ".join(skipped))
     prompt = (VISUAL_PROMPT_TEMPLATE if data_urls else PROMPT_TEMPLATE).format(
         **_format_facts(facts)
     )
