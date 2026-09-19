@@ -121,7 +121,8 @@ etsyagent/
 ## 5. AI content generation
 
 - Adapter factory: provider from env (`OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` for OpenAI-compatible — any provider, incl. free tiers like Groq; `ANTHROPIC_API_KEY` for Anthropic). `OPENAI_JSON_MODE=0` drops `response_format` for endpoints that reject it. No SDK dep — plain `httpx` against each provider's chat completion API.
-- **Vision:** uploaded photos are read as base64 `data:` URLs and sent as image content blocks (OpenAI `image_url` parts, Anthropic `image` blocks). The visual prompt additionally returns `name`, `price`, and a `category` keyword so a whole listing can be drafted from a photo alone. Images over 5MB are skipped with a clear error.
+- **Vision:** uploaded photos are read as base64 `data:` URLs and sent as image content blocks (OpenAI `image_url` parts, Anthropic `image` blocks). The visual prompt additionally returns `name`, `price`, and a `category` keyword so a whole listing can be drafted from a photo alone. Photos over 5MB are downscaled (Pillow: long edge → 1024px, EXIF-oriented, re-encoded JPEG stepping quality until < 5MB) instead of being skipped, so typical phone photos work.
+- Provider calls retry HTTP `429`s with `Retry-After` backoff (same pattern as the Etsy client), so transient provider rate limits don't abort a draft.
 - Prompt: product facts + taxonomy path + Etsy constraints (title ≤ 140, ≤ 13 tags, tag ≤ 20 chars, description in Etsy-friendly HTML paragraphs, matched who/when/is_supply context). Ask for strict JSON.
 - Output validated + capped (title length, single tag length, dedupe + tag count); never exceeds Etsy limits even if the model misbehaves.
 
