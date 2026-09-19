@@ -15,6 +15,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "pydantic-settings>=2.2",
     "python-multipart>=0.0.9",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
