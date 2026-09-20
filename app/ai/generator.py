@@ -201,22 +201,31 @@ def build_openai_payload(
 async def _retry_on_429(
     request: Callable[[], Awaitable[httpx.Response]],
     *,
-    max_retries: int = 4,
+    max_retries: int = 6,
     backoff_max: int = 60,
 ) -> httpx.Response:
-    """Send a request, retrying 429s with Retry-After backoff (mirrors EtsyClient)."""
+    """Send a request, retrying 429s with exponential + header-aware backoff.
+
+    Mirrors the EtsyClient pattern but OpenAI usually omits Retry-After,
+    exposing x-ratelimit-reset-<scope> instead, so fall back to exponential
+    backoff (2s, 4s, 8s, ...) capped at backoff_max.
+    """
     last: httpx.Response | None = None
     for attempt in range(max_retries + 1):
         last = await request()
         if last.status_code != 429 or attempt >= max_retries:
             break
-        retry_after = last.headers.get("retry-after")
-        try:
-            delay = min(int(retry_after or 0), backoff_max)
-        except (TypeError, ValueError):
-            delay = 5
-        if not delay:
-            delay = 5
+        for header in ("retry-after", "x-ratelimit-reset-requests"):
+            value = last.headers.get(header)
+            if value:
+                try:
+                    delay = min(float(value), backoff_max)
+                except (TypeError, ValueError):
+                    continue
+                if delay > 0:
+                    break
+        else:
+            delay = min(2.0 * 2**attempt, backoff_max)
         await asyncio.sleep(delay)
     assert last is not None
     return last

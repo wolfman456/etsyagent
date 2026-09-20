@@ -212,6 +212,49 @@ async def test_retry_on_429_backs_off_then_succeeds(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_retry_on_429_uses_openai_reset_header(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr("app.ai.generator.asyncio.sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def request():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"x-ratelimit-reset-requests": "7"}, json={})
+        return httpx.Response(200, json={"ok": True})
+
+    response = await _retry_on_429(request)
+    assert response.status_code == 200
+    assert sleeps == [7]
+
+
+@pytest.mark.asyncio
+async def test_retry_on_429_exponential_when_no_headers(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr("app.ai.generator.asyncio.sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def request():
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(429, json={})
+        return httpx.Response(200, json={"ok": True})
+
+    response = await _retry_on_429(request, backoff_max=10)
+    assert response.status_code == 200
+    assert calls["n"] == 3
+    assert sleeps == [2, 4]
+
+
+@pytest.mark.asyncio
 async def test_retry_on_429_exhausts_retries(monkeypatch):
     async def fake_sleep(delay):
         pass
